@@ -34,6 +34,7 @@ install -m 0755 "$NODE_BIN" "$P/tools/bin/node"
 echo "==> 3/5 插件 (lazy) / treesitter parser (site) / mason 包"
 for d in lazy site mason; do
     [ -d "$DATA_DIR/$d" ] || { echo "  跳过 $d (不存在)"; continue; }
+    mkdir -p "$P/data/nvim/$d"
     rsync -a --delete "$DATA_DIR/$d/" "$P/data/nvim/$d/"
 done
 
