@@ -12,6 +12,7 @@ set -euo pipefail
 RELEASE_VERSION='__RELEASE_VERSION__'
 MARKER='.lazyvim-offline-managed'
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PKG_ROOT="$(dirname "$SELF_DIR")"
 
 KEEP_CONFIG=0
 KEEP_DATA=0
@@ -41,13 +42,13 @@ ts() { date +%Y%m%d-%H%M%S; }
 log "[1/6] 安装 nvim 本体与 runtime"
 mkdir -p "$PREFIX"
 rm -rf "$PREFIX/nvim"
-cp -a "$SELF_DIR/payload/nvim" "$PREFIX/nvim"
+cp -a "$PKG_ROOT/payload/nvim" "$PREFIX/nvim"
 touch "$PREFIX/nvim/$MARKER"
 
 log "[2/6] 安装离线工具 (rg/fd/node)"
 mkdir -p "$PREFIX"
 rm -rf "$PREFIX/tools"
-cp -a "$SELF_DIR/payload/tools" "$PREFIX/tools"
+cp -a "$PKG_ROOT/payload/tools" "$PREFIX/tools"
 touch "$PREFIX/tools/$MARKER"
 
 log "[3/6] 安装插件/mason/treesitter 数据"
@@ -59,15 +60,15 @@ elif [ -e "$DATA_DIR" ] && [ ! -f "$DATA_DIR/$MARKER" ]; then
     mv "$DATA_DIR" "$b"
     warn "目标机已有旧数据，已整体备份 -> $b"
     mkdir -p "$(dirname "$DATA_DIR")"
-    cp -a "$SELF_DIR/payload/data/nvim" "$DATA_DIR"
+    cp -a "$PKG_ROOT/payload/data/nvim" "$DATA_DIR"
     echo "installed-by=$RELEASE_VERSION" > "$DATA_DIR/$MARKER"
 elif [ -d "$DATA_DIR" ]; then
     log "  已是本安装器管理的数据目录，做增量刷新 (--delete 清理脏文件)"
-    rsync -a --delete "$SELF_DIR/payload/data/nvim/" "$DATA_DIR/"
+    rsync -a --delete "$PKG_ROOT/payload/data/nvim/" "$DATA_DIR/"
     echo "installed-by=$RELEASE_VERSION" > "$DATA_DIR/$MARKER"
 else
     mkdir -p "$(dirname "$DATA_DIR")"
-    cp -a "$SELF_DIR/payload/data/nvim" "$DATA_DIR"
+    cp -a "$PKG_ROOT/payload/data/nvim" "$DATA_DIR"
     echo "installed-by=$RELEASE_VERSION" > "$DATA_DIR/$MARKER"
 fi
 
@@ -79,15 +80,15 @@ elif [ -e "$CFG_DIR" ] && [ ! -f "$CFG_DIR/$MARKER" ]; then
     b="${CFG_DIR}.backup-$(ts)"
     mv "$CFG_DIR" "$b"
     warn "已有配置已备份 -> $b (含旧 lazy-lock/lazyvim.json 可手动合并)"
-    cp -a "$SELF_DIR/config/nvim" "$CFG_DIR"
+    cp -a "$PKG_ROOT/config/nvim" "$CFG_DIR"
     echo "installed-by=$RELEASE_VERSION" > "$CFG_DIR/$MARKER"
 elif [ -d "$CFG_DIR" ]; then
     log "  刷新本安装器管理的配置 (--keep-config 可跳过)"
-    rsync -a --delete "$SELF_DIR/config/nvim/" "$CFG_DIR/"
+    rsync -a --delete "$PKG_ROOT/config/nvim/" "$CFG_DIR/"
     echo "installed-by=$RELEASE_VERSION" > "$CFG_DIR/$MARKER"
 else
     mkdir -p "$(dirname "$CFG_DIR")"
-    cp -a "$SELF_DIR/config/nvim" "$CFG_DIR"
+    cp -a "$PKG_ROOT/config/nvim" "$CFG_DIR"
     echo "installed-by=$RELEASE_VERSION" > "$CFG_DIR/$MARKER"
 fi
 
@@ -99,7 +100,7 @@ if [ -e "$BIN_DIR/nvim" ] && [ ! -f "$BIN_DIR/nvim.$MARKER" ]; then
     mv "$BIN_DIR/nvim" "$b"
     warn "原有 $BIN_DIR/nvim（可能是旧版 nvim）已备份 -> $b"
 fi
-sed "s|__INSTALL_PREFIX__|$PREFIX|g" "$SELF_DIR/installer/nvim-wrapper.sh" > "$BIN_DIR/nvim"
+sed "s|__INSTALL_PREFIX__|$PREFIX|g" "$PKG_ROOT/installer/nvim-wrapper.sh" > "$BIN_DIR/nvim"
 chmod 0755 "$BIN_DIR/nvim"
 touch "$BIN_DIR/nvim.$MARKER"
 
