@@ -16,4 +16,3 @@ sh "$TMP/installer/install.sh" "$@"
 
 # 该标记行之后紧跟 tar.gz 载荷，不要手动编辑本行以下内容
 __PAYLOAD_BELOW__
-
