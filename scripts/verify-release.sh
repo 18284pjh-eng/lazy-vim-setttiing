@@ -22,6 +22,16 @@ for f in payload/nvim/bin/nvim payload/nvim/runtime/doc/nvim.txt \
 done
 log "关键文件齐全"
 
+log "符号链接完整性（7z 必须以 -snl 打包，否则 mason node 工具损坏）"
+SYMLINKS_EXPECTED="pyright pyright-langserver bash-language-server markdownlint-cli2 markdown-toc clangd lua-language-server ruff shellcheck shfmt stylua"
+for s in $SYMLINKS_EXPECTED; do
+    if [ ! -L "$WORK/pkg/payload/data/nvim/mason/bin/$s" ]; then
+        echo "损坏: mason/bin/$s 不是符号链接（打包时 7z 需加 -snl）" >&2
+        exit 1
+    fi
+done
+log "mason/bin 符号链接完好"
+
 log "模拟全新用户（干净 HOME）完整启动"
 mkdir -p "$WORK/home"
 export HOME="$WORK/home"

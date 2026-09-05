@@ -34,7 +34,7 @@ die()  { echo "错误: $*" >&2; exit 1; }
 
 ARCH="$(uname -m)"
 [ "$ARCH" = "x86_64" ] || die "本离线包仅支持 x86_64，当前为 $ARCH"
-GLIBC_MAJMIN="$(ldd --version 2>/dev/null | head -1 | awk '{print $NF}' | cut -d. -f1-2)"
+GLIBC_MAJMIN="$(ldd --version 2>/dev/null | awk 'NR==1 {print $NF}' | cut -d. -f1-2)"
 log "目标机: x86_64, glibc $GLIBC_MAJMIN, PREFIX=$PREFIX"
 
 ts() { date +%Y%m%d-%H%M%S; }
@@ -120,7 +120,7 @@ if ! timeout 120 "$BIN_DIR/nvim" --headless '+lua vim.api.nvim_command("qa!")' >
     warn "headless 启动失败，日志: /tmp/lazyvim-offline-smoke.log"
     warn "请运行: $BIN_DIR/nvim 查看具体报错"
 else
-    log "启动成功: $("$BIN_DIR/nvim" --version | head -1)"
+    log "启动成功: $("$BIN_DIR/nvim" --version | awk 'NR==1')"
 fi
 
 cat <<EOF

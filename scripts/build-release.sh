@@ -35,7 +35,8 @@ sed -i "s|__RELEASE_VERSION__|${VERSION} (${GIT_DESC}, 打包于 ${RUN_STAMP})|"
 cp payload/manifest.txt "$STAGING/payload/manifest.txt"
 
 echo "==> 3/5 生成 7z 主发布包"
-( cd "$STAGING" && 7z a -mx=7 -bd -bso0 -bsp0 "$OUT/${NAME}.7z" . )
+# -snl: 保留符号链接（mason/bin 下是相对符号链接，解引用会破坏 node 工具的模块解析）
+( cd "$STAGING" && 7z a -mx=7 -snl -bd -bso0 -bsp0 "$OUT/${NAME}.7z" . )
 echo "    $(du -h "$OUT/${NAME}.7z" | cut -f1)  $OUT/${NAME}.7z"
 
 echo "==> 4/5 生成自解压 .run 回退包（目标机无需 7z，仅需 tar+gzip）"
