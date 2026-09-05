@@ -13,6 +13,8 @@ RELEASE_VERSION='__RELEASE_VERSION__'
 MARKER='.lazyvim-offline-managed'
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_ROOT="$(dirname "$SELF_DIR")"
+# 防止被 sh/dash 执行导致路径解析错乱
+[ -n "$SELF_DIR" ] && [ "$SELF_DIR" != "." ] || die "请用 bash 执行: bash install.sh"
 
 KEEP_CONFIG=0
 KEEP_DATA=0
