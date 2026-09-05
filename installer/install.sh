@@ -39,6 +39,23 @@ log "目标机: x86_64, glibc $GLIBC_MAJMIN, PREFIX=$PREFIX"
 
 ts() { date +%Y%m%d-%H%M%S; }
 
+# 修复包内符号链接：部分 7z 版本拒绝提取相对符号链接（或解引用成坏文件）
+repair_symlinks() {
+    local manifest="$PKG_ROOT/payload/symlinks.tsv"
+    [ -f "$manifest" ] || return 0
+    local n=0
+    while IFS=$'\t' read -r link target; do
+        [ -n "$link" ] || continue
+        local dest="$PKG_ROOT/$link"
+        rm -f "$dest"
+        mkdir -p "$(dirname "$dest")"
+        ln -s "$target" "$dest"
+        n=$((n + 1))
+    done < "$manifest"
+    log "已修复包内符号链接 $n 条"
+}
+repair_symlinks
+
 log "[1/6] 安装 nvim 本体与 runtime"
 mkdir -p "$PREFIX"
 rm -rf "$PREFIX/nvim"

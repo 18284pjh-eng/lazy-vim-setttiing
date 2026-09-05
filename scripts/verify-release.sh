@@ -32,31 +32,37 @@ for s in $SYMLINKS_EXPECTED; do
 done
 log "mason/bin 符号链接完好"
 
-log "模拟全新用户（干净 HOME）完整启动"
-mkdir -p "$WORK/home"
+log "模拟全新用户（干净 HOME）端到端安装"
+mkdir -p "$WORK/home/.local/bin" "$WORK/home/.config/nvim" "$WORK/home/.local/share/nvim/lazy"
+echo "junk" > "$WORK/home/.config/nvim/init.lua"
+echo "junk" > "$WORK/home/.local/share/nvim/lazy/old-broken-plugin"
+printf '#!/bin/sh\necho old-nvim\n' > "$WORK/home/.local/bin/nvim"
+chmod +x "$WORK/home/.local/bin/nvim"
 export HOME="$WORK/home"
-export XDG_DATA_HOME="$WORK/home/.local/share"
-export XDG_CONFIG_HOME="$WORK/home/.config"
-export XDG_STATE_HOME="$WORK/home/.local/state"
-export XDG_CACHE_HOME="$WORK/home/.cache"
-export PATH="$WORK/pkg/payload/tools/bin:$PATH"
-mkdir -p "$XDG_DATA_HOME" "$XDG_CONFIG_HOME"
-cp -a "$WORK/pkg/payload/data/nvim" "$XDG_DATA_HOME/nvim"
-cp -a "$WORK/pkg/config/nvim" "$XDG_CONFIG_HOME/nvim"
+bash "$WORK/pkg/installer/install.sh" > "$WORK/install.log" 2>&1 \
+    || { echo "install.sh 失败:" >&2; tail -20 "$WORK/install.log" >&2; exit 1; }
+tail -3 "$WORK/install.log"
 
-RTP_ADD="$WORK/pkg/payload/nvim/runtime"
-# --cmd 阶段: 注入 runtime; 稍后延迟退出, 给 lazy.nvim 足够时间恢复插件
-timeout 300 "$WORK/pkg/payload/nvim/bin/nvim" --headless \
-    --cmd "set rtp^=$RTP_ADD" \
-    --cmd "set rtp^=$XDG_DATA_HOME/nvim/lazy/lazy.nvim" \
-    '+lua vim.defer_fn(function()
-        local plug = require("lazy.core.config").plugins or {}
-        local ok, disabled = 0, {}
-        for name, p in pairs(plug) do
-            if p._.loaded then ok = ok + 1 else disabled[#disabled+1] = name end
-        end
-        print(string.format("插件加载: %d 已加载 / %d 按需(未加载)", ok, #disabled))
-        vim.api.nvim_command("qa!")
-    end, 20000)' 2>&1 | tail -5
+BIN="$HOME/.local/bin/nvim"
+[ -L "$HOME/.local/share/nvim/mason/bin/pyright" ] || { echo "pyright 不是符号链接" >&2; exit 1; }
+[ ! -e "$HOME/.local/share/nvim/lazy/old-broken-plugin" ] || { echo "脏旧数据未被清理" >&2; exit 1; }
+ls -d "$HOME"/.local/share/nvim.backup-* >/dev/null 2>&1 || { echo "旧数据未备份" >&2; exit 1; }
+
+log "mason node 工具（依赖包内 node，模拟 wrapper 的 PATH 隔离）"
+PREFIX_DIR="$HOME/.local/opt/lazyvim-offline"
+( export PATH="$PREFIX_DIR/tools/bin:$PATH"
+  "$HOME/.local/share/nvim/mason/bin/pyright" --version || { echo "pyright 不可用" >&2; exit 1; }
+) || exit 1
+
+log "干净 HOME 下完整插件启动"
+mkdir -p "$HOME/.cache" "$HOME/.local/state"
+timeout 300 "$BIN" --headless '+lua vim.defer_fn(function()
+    local plug = require("lazy.core.config").plugins or {}
+    local n = 0
+    for _, _ in pairs(plug) do n = n + 1 end
+    print("插件注册: " .. n)
+    print("rg: " .. (vim.fn.executable("rg") == 1 and "ok" or "MISSING"))
+    vim.api.nvim_command("qa!")
+end, 20000)' 2>&1 | tail -3
 
 log "全部通过 ✓"

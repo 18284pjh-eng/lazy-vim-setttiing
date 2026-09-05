@@ -34,6 +34,11 @@ sed -i "s|__RELEASE_VERSION__|${VERSION} (${GIT_DESC}, 打包于 ${RUN_STAMP})|"
     "$STAGING/installer/install.sh"
 cp payload/manifest.txt "$STAGING/payload/manifest.txt"
 
+# 记录全部符号链接：部分 7z 版本会拒绝/解引用相对符号链接，
+# install.sh 启动时依据本清单修复（见 repair_symlinks）。
+( cd "$STAGING" && find payload -type l -printf '%p\t%l\n' | sort > payload/symlinks.tsv )
+echo "    符号链接清单: $(wc -l < "$STAGING/payload/symlinks.tsv") 条"
+
 echo "==> 3/5 生成 7z 主发布包"
 # -snl: 保留符号链接（mason/bin 下是相对符号链接，解引用会破坏 node 工具的模块解析）
 ( cd "$STAGING" && 7z a -mx=7 -snl -bd -bso0 -bsp0 "$OUT/${NAME}.7z" . )
