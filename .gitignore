@@ -1,0 +1,6 @@
+# 构建产物不入库：二进制 payload 与 release 包由脚本从本机现场收集
+/payload/
+/dist/
+*.7z
+*.run
+*.tar.gz
