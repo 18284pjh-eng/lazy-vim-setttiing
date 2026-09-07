@@ -87,6 +87,7 @@ mkdir -p "$PREFIX"
 rm -rf "$PREFIX/tools"
 cp -a "$PKG_ROOT/payload/tools" "$PREFIX/tools"
 touch "$PREFIX/tools/$MARKER"
+"$PREFIX/tools/bin/rg" --version >/dev/null || die "包内 rg 无法运行"
 
 log "[3/6] 安装插件/mason/treesitter 数据"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nvim"

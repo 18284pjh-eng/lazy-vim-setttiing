@@ -78,6 +78,27 @@ chmod +x lazyvim-offline-<版本>.run
 - **不在内网自动下载**：lazy.nvim 缺失时直接报错；插件、Mason、Treesitter 的自动安装和
   更新检查均关闭。构建机会在复制 payload 前检查所有锁定插件的提交，以及本配置要求的运行时。
 
+## C/C++ 语义跳转与搜索
+
+- 在 C/C++ 文件中，`gd` 跳转光标下的定义，`gr` 查找语义引用。`#include "header.h"` 也通过
+  clangd 的 definition 请求跳转；不额外绑定 F12。
+- clangd 自动识别项目根目录、`build/`、`cmake-build-*`、`out/build/` 内已有的
+  `compile_commands.json`。CMake 项目在项目根执行：
+
+  ```bash
+  cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+  ```
+
+  生成后重开 C/C++ 文件或重启 Neovim，使 clangd 重新启动并读取数据库。该 `build/` 是可删除、不可提交的生成物。
+- 搜索一段文本时，先用视觉模式选中它，再按 `<Space>sw`；`yy` 只写入寄存器，不会自动成为搜索词。
+
+## 复制与粘贴
+
+- 即使没有图形剪贴板，`yy`、`p` 和其他 Neovim 寄存器操作也可正常工作，不会调用缺失的外部程序。
+- 在图形桌面中，配置会自动启用系统剪贴板：Wayland 需要 `wl-copy` 和 `wl-paste`
+  （通常由 `wl-clipboard` 提供）；X11 需要 `xclip` 或 `xsel`。这些是目标机图形会话的系统
+  依赖，不随 x86_64 离线包捆绑；请由内网软件源或管理员安装。
+
 ## 注意事项
 
 - 离线包仅支持 x86_64 + glibc ≥ 2.34（Debian 12/13 满足）；安装器会在不满足时停止。

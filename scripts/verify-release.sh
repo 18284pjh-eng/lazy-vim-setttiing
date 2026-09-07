@@ -92,9 +92,15 @@ timeout 300 "$BIN" --headless '+lua vim.defer_fn(function()
     local expected_runtime = vim.env.HOME .. "/.local/opt/lazyvim-offline/nvim/runtime"
     assert(vim.env.VIMRUNTIME == expected_runtime, "VIMRUNTIME 未指向包内 runtime: " .. vim.env.VIMRUNTIME)
     assert(n >= 48, "LazyVim 插件未完整加载，注册数: " .. n)
+    assert(vim.fn.executable("rg") == 1, "rg 不可用")
     assert(vim.fn.executable("fd") == 1, "fd 不可用")
+    assert(vim.system({ "rg", "--version" }):wait().code == 0, "rg 无法启动")
+    assert(vim.o.clipboard == "", "无图形会话时不应强制系统剪贴板")
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "clipboard-check" })
+    vim.cmd("normal! gg0yy")
+    assert(vim.fn.getreg("0") == "clipboard-check\\n", "内部复制失败")
     print("插件注册: " .. n)
-    print("rg/fd: ok")
+    print("rg/fd/clipboard: ok")
     vim.api.nvim_command("qa!")
 end, 20000)' 2>&1 | tail -3
 

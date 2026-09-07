@@ -10,9 +10,19 @@ vim.opt.expandtab = true -- Tab 转为空格，保证等宽对齐
 vim.opt.termguicolors = true -- 确保字体颜色和符号正常显示
 vim.g.autoformat = false -- 保存时不自动格式化，避免自动修改代码布局
 
--- Use the X11 clipboard through xclip.
-vim.opt.clipboard = "unnamedplus"
-vim.g.clipboard = "xclip"
+-- Only use the system clipboard when the current graphical session can
+-- actually serve it.  Forcing xclip makes every `yy` fail on a Wayland,
+-- SSH, or minimal offline host where xclip is unavailable.
+local has = vim.fn.executable
+local wayland_clipboard = vim.env.WAYLAND_DISPLAY and has("wl-copy") == 1 and has("wl-paste") == 1
+local x11_clipboard = vim.env.DISPLAY and (has("xclip") == 1 or has("xsel") == 1)
+if wayland_clipboard or x11_clipboard then
+  vim.opt.clipboard = "unnamedplus"
+else
+  -- Keep yy/p working through Neovim's normal registers without spawning an
+  -- unavailable external clipboard provider.
+  vim.opt.clipboard = ""
+end
 
 -- 禁用比例字体，强制等宽
 vim.cmd([[
