@@ -4,6 +4,9 @@
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 P="$REPO_ROOT/payload"
+COMPILEDB_DIR="$REPO_ROOT/third_party/compiledb-go/v1.7.1"
+COMPILEDB_ARCHIVE="$COMPILEDB_DIR/compiledb-linux-amd64.txz"
+COMPILEDB_SHA256="acb787f0aeb35b3d5fc93cc4c7378296cea3f10a53425c6265635a1b39b935e4"
 
 NVIM_BIN="${NVIM_BIN:-$(command -v nvim)}"
 NVIM_RUNTIME_DIR="${NVIM_RUNTIME_DIR:-}"
@@ -38,7 +41,7 @@ mkdir -p "$P/nvim/bin"
 install -m 0755 "$NVIM_BIN" "$P/nvim/bin/nvim"
 copy_tree "$NVIM_RUNTIME_DIR" "$P/nvim/runtime"
 
-echo "==> 2/5 独立工具 (rg/fd/node)"
+echo "==> 2/5 独立工具 (rg/fd/node/compiledb)"
 mkdir -p "$P/tools/bin"
 RG_BIN="$(command -v rg 2>/dev/null || true)"
 FD_BIN="${FD_BIN:-$(command -v fd 2>/dev/null || command -v fdfind 2>/dev/null || true)}"
@@ -47,6 +50,16 @@ FD_BIN="${FD_BIN:-$(command -v fd 2>/dev/null || command -v fdfind 2>/dev/null |
 install -m 0755 "$RG_BIN" "$P/tools/bin/rg"
 install -m 0755 "$FD_BIN" "$P/tools/bin/fd"
 install -m 0755 "$NODE_BIN" "$P/tools/bin/node"
+[ -f "$COMPILEDB_ARCHIVE" ] || err "缺少 bundled compiledb: $COMPILEDB_ARCHIVE"
+actual_compiledb_sha="$(sha256sum "$COMPILEDB_ARCHIVE" | awk '{print $1}')"
+[ "$actual_compiledb_sha" = "$COMPILEDB_SHA256" ] \
+    || err "compiledb 校验和不匹配（期望 $COMPILEDB_SHA256，实际 $actual_compiledb_sha）"
+compiledb_tmp="$(mktemp -d "${TMPDIR:-/tmp}/compiledb-go.XXXXXX")"
+trap 'rm -rf "$compiledb_tmp"' EXIT
+tar -xJf "$COMPILEDB_ARCHIVE" -C "$compiledb_tmp"
+[ -x "$compiledb_tmp/compiledb" ] || err "compiledb 归档缺少可执行文件"
+install -m 0755 "$compiledb_tmp/compiledb" "$P/tools/bin/compiledb"
+install -m 0755 "$REPO_ROOT/scripts/compiledb-rake.sh" "$P/tools/bin/compiledb-rake"
 
 echo "==> 3/5 插件 (lazy) / treesitter parser (site) / 必需 mason 包"
 for d in lazy site; do
@@ -72,6 +85,7 @@ echo "==> 5/5 生成清单 manifest.txt"
     echo "node: $($P/tools/bin/node --version)"
     echo "rg:   $($P/tools/bin/rg --version | awk 'NR==1')"
     echo "fd:   $($P/tools/bin/fd --version)"
+    echo "compiledb: $($P/tools/bin/compiledb --help | sed -n '1p')"
     echo "插件数: $(ls "$P/data/nvim/lazy" 2>/dev/null | wc -l)"
     echo "mason 包: $(ls "$P/data/nvim/mason/packages" 2>/dev/null | tr '\n' ' ')"
     echo "treesitter parser: $(ls "$P/data/nvim/site/parser"/*.so 2>/dev/null | wc -l) 个 .so"

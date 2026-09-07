@@ -11,8 +11,27 @@ local offline_servers = {
   "verible",
 }
 
+local function query_drivers()
+  local drivers, seen = {}, {}
+  for _, dir in ipairs(vim.split(vim.env.PATH or "", ":", { plain = true, trimempty = true })) do
+    if vim.fn.isabsolutepath(dir) == 1 then
+      for _, path in ipairs(vim.fn.glob(vim.fs.joinpath(dir, "{gcc,g++,*-gcc,*-g++}"), false, true)) do
+        if vim.fn.executable(path) == 1 and not seen[path] then
+          seen[path] = true
+          drivers[#drivers + 1] = path
+        end
+      end
+    end
+  end
+  return drivers
+end
+
 local function clangd_command(base_cmd, dispatchers, config)
   local cmd = vim.deepcopy(base_cmd)
+  local drivers = query_drivers()
+  if #drivers > 0 then
+    cmd[#cmd + 1] = "--query-driver=" .. table.concat(drivers, ",")
+  end
   local root = config.root_dir
   if root then
     local dirs = {

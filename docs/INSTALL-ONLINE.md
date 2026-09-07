@@ -21,7 +21,7 @@ chmod +x lazyvim-offline-<版本>.run
 
 安装脚本会：
 
-1. 把 nvim 本体、runtime、rg/fd/node 工具装到 `~/.local/opt/lazyvim-offline/`
+1. 把 nvim 本体、runtime、rg/fd/node/compiledb 工具装到 `~/.local/opt/lazyvim-offline/`
 2. 把全部插件、mason LSP、treesitter parser 装到 `~/.local/share/nvim/`
 3. 把配置装到 `~/.config/nvim/`
 4. 写启动包装器 `~/.local/bin/nvim`（PATH 隔离，屏蔽系统旧版本与脏依赖）
@@ -64,5 +64,7 @@ sha256sum -c lazyvim-offline-<版本>.SHA256SUMS
 - 启动报错先看 `~/.local/bin/nvim` 是否存在且指向本包；
 - `:checkhealth` 查看运行环境；
 - 若冒烟测试失败，日志在 `/tmp/lazyvim-offline-smoke.log`。
+- Makefile 项目可使用 `compiledb --full-path --overwrite --no-build make [参数]` 生成
+  `compile_commands.json`；Rakefile 项目使用 `compiledb-rake [任务]`。两者都要从项目根运行。
 - 不要在内网运行 `:Lazy sync`、`:MasonUpdate` 或 `:TSUpdate`。离线包不会自动下载缺失组件；
   请在构建机补齐后重新打包。

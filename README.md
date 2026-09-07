@@ -90,6 +90,22 @@ chmod +x lazyvim-offline-<版本>.run
   ```
 
   生成后重开 C/C++ 文件或重启 Neovim，使 clangd 重新启动并读取数据库。该 `build/` 是可删除、不可提交的生成物。
+- Makefile 项目在项目根执行（`[参数]` 例如 `-j8`、目标名或变量赋值）：
+
+  ```bash
+  compiledb --full-path --overwrite --no-build make [参数]
+  ```
+
+  该命令只让 Make 发现编译命令，不实际编译；会把 `-march`、`-mabi`、`-mcpu`、`-I` 和 `-D`
+  原样写入根目录的 `compile_commands.json`。
+- Rakefile 项目可执行：
+
+  ```bash
+  compiledb-rake [任务]
+  ```
+
+  它会以 `rake --build-all --verbose` 执行真实构建，解析输出中可见的 GCC/Clang 命令，并在构建失败时
+  仍返回原始 Rake 退出码。首版只支持可见编译命令；hdlmgr/SDK 若隐藏或包装命令，等提供实际日志后再加入适配。
 - 搜索一段文本时，先用视觉模式选中它，再按 `<Space>sw`；`yy` 只写入寄存器，不会自动成为搜索词。
 
 ## 复制与粘贴

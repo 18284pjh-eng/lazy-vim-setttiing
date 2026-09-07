@@ -28,6 +28,9 @@ case "$PKG" in
         cat "$WORK/pkg/payload/manifest.txt"
         for f in payload/nvim/bin/nvim payload/nvim/runtime/doc/nvim.txt \
                  payload/tools/bin/rg payload/tools/bin/fd payload/tools/bin/node \
+                 payload/tools/bin/compiledb payload/tools/bin/compiledb-rake \
+                 third_party/compiledb-go/v1.7.1/LICENSE \
+                 third_party/compiledb-go/v1.7.1/compiledb-go-v1.7.1.tar.gz \
                  payload/data/nvim/lazy config/nvim/init.lua \
                  installer/install.sh installer/nvim-wrapper.sh; do
             [ -e "$WORK/pkg/$f" ] || { echo "缺失: $f" >&2; exit 1; }
@@ -94,8 +97,11 @@ timeout 300 "$BIN" --headless '+lua vim.defer_fn(function()
     assert(n >= 48, "LazyVim 插件未完整加载，注册数: " .. n)
     assert(vim.fn.executable("rg") == 1, "rg 不可用")
     assert(vim.fn.executable("fd") == 1, "fd 不可用")
+    assert(vim.fn.executable("compiledb") == 1, "compiledb 不可用")
     local rg_version = vim.fn.system({ "rg", "--version" })
     assert(vim.v.shell_error == 0 and #rg_version > 0, "rg 无法启动")
+    local compiledb_version = vim.fn.system({ "compiledb", "--help" })
+    assert(vim.v.shell_error == 0 and #compiledb_version > 0, "compiledb 无法启动")
     assert(vim.o.clipboard == "", "无图形会话时不应强制系统剪贴板")
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "clipboard-check" })
     vim.cmd("normal! gg0yy")
@@ -103,7 +109,7 @@ timeout 300 "$BIN" --headless '+lua vim.defer_fn(function()
     vim.fn.setreg("+", "clipboard-check")
     assert(vim.fn.getreg("+") == "clipboard-check", "+ 寄存器后备复制失败")
     print("插件注册: " .. n)
-    print("rg/fd/clipboard: ok")
+    print("rg/fd/compiledb/clipboard: ok")
     vim.api.nvim_command("qa!")
 end, 20000)' 2>&1 | tail -3
 

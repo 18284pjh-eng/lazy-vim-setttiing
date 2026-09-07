@@ -26,6 +26,7 @@ mkdir -p "$STAGING"
 cp -a payload "$STAGING/payload"
 cp -a config "$STAGING/config"
 cp -a installer "$STAGING/installer"
+cp -a third_party "$STAGING/third_party"
 cp -a README.md "$STAGING/"
 cp -a docs/INSTALL-ONLINE.md "$STAGING/INSTALL.md" 2>/dev/null || true
 
