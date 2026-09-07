@@ -20,8 +20,28 @@ if wayland_clipboard or x11_clipboard then
   vim.opt.clipboard = "unnamedplus"
 else
   -- Keep yy/p working through Neovim's normal registers without spawning an
-  -- unavailable external clipboard provider.
+  -- unavailable external clipboard provider.  The explicit + and * registers
+  -- use an in-memory fallback so Nvim will not auto-detect and invoke xclip.
   vim.opt.clipboard = ""
+  local memory_clipboard = {
+    ["+"] = { {}, "v" },
+    ["*"] = { {}, "v" },
+  }
+  local function copy(register)
+    return function(lines, regtype)
+      memory_clipboard[register] = { vim.deepcopy(lines), regtype }
+    end
+  end
+  local function paste(register)
+    return function()
+      return vim.deepcopy(memory_clipboard[register])
+    end
+  end
+  vim.g.clipboard = {
+    name = "in-memory (no system clipboard)",
+    copy = { ["+"] = copy("+"), ["*"] = copy("*") },
+    paste = { ["+"] = paste("+"), ["*"] = paste("*") },
+  }
 end
 
 -- 禁用比例字体，强制等宽
