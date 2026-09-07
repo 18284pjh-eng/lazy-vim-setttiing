@@ -2,7 +2,7 @@
 
 ## 前提
 
-- Linux x86_64，glibc ≥ 2.31（Debian 11/12/13 均可）
+- Linux x86_64，glibc ≥ 2.34（Debian 12/13 均可）
 - 普通用户账号即可，无需 root/sudo
 - 可选工具：`7z`（无它就用自解压 `.run` 包）
 
@@ -10,7 +10,7 @@
 
 ```bash
 # 方式 A: 有 7z
-7z x lazyvim-offline-<版本>.7z -o lazyvim-offline
+7z x lazyvim-offline-<版本>.7z -olazyvim-offline
 cd lazyvim-offline
 ./installer/install.sh
 
@@ -56,7 +56,7 @@ chmod +x lazyvim-offline-<版本>.run
 ## 校验（可选）
 
 ```bash
-sha256sum -c SHA256SUMS
+sha256sum -c lazyvim-offline-<版本>.SHA256SUMS
 ```
 
 ## 故障排查
@@ -64,3 +64,5 @@ sha256sum -c SHA256SUMS
 - 启动报错先看 `~/.local/bin/nvim` 是否存在且指向本包；
 - `:checkhealth` 查看运行环境；
 - 若冒烟测试失败，日志在 `/tmp/lazyvim-offline-smoke.log`。
+- 不要在内网运行 `:Lazy sync`、`:MasonUpdate` 或 `:TSUpdate`。离线包不会自动下载缺失组件；
+  请在构建机补齐后重新打包。

@@ -1,8 +1,8 @@
 # lazyvim-offline — LazyVim 离线迁移与部署
 
-把本机（Debian 13 x86_64）的完整 LazyVim 环境——nvim 本体、全部插件、mason LSP/formatter、
-treesitter parser、node/rg/fd 工具链——打成一个 7z 离线包，部署到**无 sudo 权限**的纯净
-内网 Debian 13 机器上，全程无需联网、无需 root。
+把构建机（Debian 12+ x86_64）的完整 LazyVim 环境——nvim 本体、全部插件、Mason
+LSP/formatter、Treesitter parser、node/rg/fd 工具链——打成一个 7z 离线包，部署到**无
+sudo 权限**的纯净内网 Debian 12+ 机器上。安装与日常使用不需要联网、也不需要 root。
 
 ## 仓库结构
 
@@ -25,29 +25,30 @@ treesitter parser、node/rg/fd 工具链——打成一个 7z 离线包，部署
 ## 日常维护流程（配置有更新时）
 
 ```bash
-# 1. 在本机正常使用/修改 nvim 配置（:Lazy、mason 装新包等）
+# 1. 仅在可联网的构建机正常使用/修改 nvim 配置，并显式安装新增依赖
 nvim   # ...
 
 # 2. 同步配置进仓库并提交（git 管理每次变更）
 ./scripts/sync-config.sh
 
-# 3. 打新发布包（自动重新收集 payload，含新增 mason 包/插件）
+# 3. 打新发布包（先检查插件、Mason、Treesitter 是否完整，再收集 payload）
 ./scripts/build-release.sh            # 或指定版本号: ./scripts/build-release.sh v1.1.0
 
-# 4. 验证发布包（干净环境 headless 启动测试）
+# 4. 分别验证 7z 与 .run 包（干净环境 headless 启动测试）
 ./scripts/verify-release.sh dist/lazyvim-offline-*.7z
+./scripts/verify-release.sh dist/lazyvim-offline-*.run
 
 # 5. 打 git tag 并传输
 git add -A && git commit -m "release: <版本>"
 git tag <版本>
-# 将 dist/lazyvim-offline-<版本>.7z（及 SHA256SUMS）拷入内网
+# 将 .7z、.run 与 <版本>.SHA256SUMS 一起拷入内网
 ```
 
 ## 内网机器安装（无 sudo）
 
 ```bash
 # 方式 A: 有 7z
-7z x lazyvim-offline-<版本>.7z -o lazyvim-offline
+7z x lazyvim-offline-<版本>.7z -olazyvim-offline
 cd lazyvim-offline && ./installer/install.sh
 
 # 方式 B: 无 7z（自解压）
@@ -72,12 +73,20 @@ chmod +x lazyvim-offline-<版本>.run
   - 目标机已有**外来**的 nvim/配置/数据 → 自动带时间戳备份（`*.backup-<ts>`）后再安装；
   - 已是自家管理的目录 → `rsync --delete` 增量刷新，自动清掉脏的/过期的 mason 包与旧 parser。
 - **幂等**：重复运行 install.sh 即升级/修复；`uninstall.sh [--restore-backups]` 可回滚。
-- **可复现**：`lazy-lock.json` 固定插件版本；payload 带版本与 sha256 清单（manifest.txt）；
-  发布物附 git bundle 供离线溯源。
+- **可复现**：`lazy-lock.json` 固定插件版本；payload 带版本与 sha256 清单（manifest.txt）。
+  仅当构建工作区无未提交修改时，发布物才附带与包内配置一致的 git bundle 供离线溯源。
+- **不在内网自动下载**：lazy.nvim 缺失时直接报错；插件、Mason、Treesitter 的自动安装和
+  更新检查均关闭。构建机会在复制 payload 前检查所有锁定插件的提交，以及本配置要求的运行时。
 
 ## 注意事项
 
-- 离线包仅支持 x86_64 + glibc ≥ 2.31（Debian 13 满足）。
+- 离线包仅支持 x86_64 + glibc ≥ 2.34（Debian 12/13 满足）；安装器会在不满足时停止。
+- 构建机需要 `bash`、`git`、`7z`、`tar`、`gzip`、`node`、`rg`，以及 `fd` 或 Debian 的
+  `fdfind`。先运行 `./scripts/check-offline-prereqs.sh` 可只检查缓存完整性。
+- 若预检提示插件提交不匹配，在构建机执行 `:Lazy restore`；提示缺少组件时按所列名称显式
+  补齐，再重新运行预检和打包。
+- 内网目标机不要运行 `:Lazy sync`、`:MasonUpdate` 或 `:TSUpdate`；这些是构建机联网维护时
+  才使用的命令。若包缺组件，请回到构建机补齐后重新打包。
 - avante / leetcode 等 AI、刷题插件需网络/API 网关才可用；离线环境不影响其余功能。
 - `markdown-preview.nvim` 的浏览器预览依赖 GUI 浏览器；纯终端下 `render-markdown.nvim` 可用。
 - 换了新 mason 包或新插件后，务必重跑 `build-release.sh`，payload 会重新收集。

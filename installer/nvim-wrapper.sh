@@ -6,6 +6,10 @@
 PREFIX="__INSTALL_PREFIX__"
 
 export PATH="$PREFIX/tools/bin:$HOME/.local/bin:$PATH"
+# The bundled binary was built with a build-host runtime path.  Pin it to the
+# runtime shipped beside the binary so an offline target never falls back to
+# /usr/local/share/nvim (or a host-installed Neovim runtime).
+export VIMRUNTIME="$PREFIX/nvim/runtime"
 
 mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/nvim" \
          "${XDG_CONFIG_HOME:-$HOME/.config}/nvim" \

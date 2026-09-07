@@ -37,6 +37,11 @@ die()  { echo "错误: $*" >&2; exit 1; }
 ARCH="$(uname -m)"
 [ "$ARCH" = "x86_64" ] || die "本离线包仅支持 x86_64，当前为 $ARCH"
 GLIBC_MAJMIN="$(ldd --version 2>/dev/null | awk 'NR==1 {print $NF}' | cut -d. -f1-2)"
+[ -n "$GLIBC_MAJMIN" ] || die "无法识别 glibc 版本"
+IFS=. read -r GLIBC_MAJOR GLIBC_MINOR <<< "$GLIBC_MAJMIN"
+if [ "$GLIBC_MAJOR" -lt 2 ] || { [ "$GLIBC_MAJOR" -eq 2 ] && [ "$GLIBC_MINOR" -lt 34 ]; }; then
+    die "本离线包需要 glibc >= 2.34，当前为 $GLIBC_MAJMIN"
+fi
 log "目标机: x86_64, glibc $GLIBC_MAJMIN, PREFIX=$PREFIX"
 
 ts() { date +%Y%m%d-%H%M%S; }
@@ -57,6 +62,19 @@ repair_symlinks() {
     log "已修复包内符号链接 $n 条"
 }
 repair_symlinks
+
+refresh_tree() {
+    local source="$1" destination="$2" replacement
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a --delete "$source/" "$destination/"
+        return
+    fi
+    replacement="${destination}.new-$(ts)"
+    rm -rf "$replacement"
+    cp -a "$source" "$replacement"
+    rm -rf "$destination"
+    mv "$replacement" "$destination"
+}
 
 log "[1/6] 安装 nvim 本体与 runtime"
 mkdir -p "$PREFIX"
@@ -82,8 +100,8 @@ elif [ -e "$DATA_DIR" ] && [ ! -f "$DATA_DIR/$MARKER" ]; then
     cp -a "$PKG_ROOT/payload/data/nvim" "$DATA_DIR"
     echo "installed-by=$RELEASE_VERSION" > "$DATA_DIR/$MARKER"
 elif [ -d "$DATA_DIR" ]; then
-    log "  已是本安装器管理的数据目录，做增量刷新 (--delete 清理脏文件)"
-    rsync -a --delete "$PKG_ROOT/payload/data/nvim/" "$DATA_DIR/"
+    log "  已是本安装器管理的数据目录，刷新并清理脏文件"
+    refresh_tree "$PKG_ROOT/payload/data/nvim" "$DATA_DIR"
     echo "installed-by=$RELEASE_VERSION" > "$DATA_DIR/$MARKER"
 else
     mkdir -p "$(dirname "$DATA_DIR")"
@@ -103,7 +121,7 @@ elif [ -e "$CFG_DIR" ] && [ ! -f "$CFG_DIR/$MARKER" ]; then
     echo "installed-by=$RELEASE_VERSION" > "$CFG_DIR/$MARKER"
 elif [ -d "$CFG_DIR" ]; then
     log "  刷新本安装器管理的配置 (--keep-config 可跳过)"
-    rsync -a --delete "$PKG_ROOT/config/nvim/" "$CFG_DIR/"
+    refresh_tree "$PKG_ROOT/config/nvim" "$CFG_DIR"
     echo "installed-by=$RELEASE_VERSION" > "$CFG_DIR/$MARKER"
 else
     mkdir -p "$(dirname "$CFG_DIR")"

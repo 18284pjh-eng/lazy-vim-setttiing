@@ -3,7 +3,7 @@
 -- 2) <BS> 删除 ( [ { 时只删单个字符，不再成对删除对应的右括号
 -- （输入 ( [ { 仍会自动补全右括号；引号行为不变）
 return {
-  "echasnovski/mini.pairs",
+  "nvim-mini/mini.pairs",
   opts = {
     mappings = {
       -- 关闭"跳过右括号"：取消 ) ] } 的映射，恢复原生插入行为

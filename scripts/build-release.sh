@@ -55,11 +55,17 @@ chmod 0755 "$OUT/${NAME}.run"
 rm -f "$TARBALL"
 echo "    $(du -h "$OUT/${NAME}.run" | cut -f1)  $OUT/${NAME}.run"
 
-echo "==> 5/5 校验和与 git bundle"
-( cd "$OUT" && sha256sum "${NAME}.7z" "${NAME}.run" > SHA256SUMS )
-git bundle create "$OUT/${NAME}.repo.bundle" --all 2>/dev/null \
-    && echo "    已附带 git bundle（离线源码溯源）" \
-    || echo "    git bundle 跳过（无提交历史）"
+echo "==> 5/5 git bundle 与校验和"
+CHECKSUMS="${NAME}.SHA256SUMS"
+if git diff --quiet && git diff --cached --quiet \
+    && [ -z "$(git ls-files --others --exclude-standard)" ] \
+    && git bundle create "$OUT/${NAME}.repo.bundle" --all 2>/dev/null; then
+    ( cd "$OUT" && sha256sum "${NAME}.7z" "${NAME}.run" "${NAME}.repo.bundle" > "$CHECKSUMS" )
+    echo "    已附带 git bundle（离线源码溯源）"
+else
+    ( cd "$OUT" && sha256sum "${NAME}.7z" "${NAME}.run" > "$CHECKSUMS" )
+    echo "    git bundle 跳过（工作区未提交或无提交历史；包内 config 仍为完整安装源）"
+fi
 
 rm -rf "$STAGING"
 echo
@@ -67,5 +73,5 @@ echo "发布物就绪:"
 ls -lh "$OUT" | grep -v '^total'
 echo
 echo "离线传输到内网后安装:"
-echo "  7z 包 : 7z x ${NAME}.7z -d lazyvim-offline && cd lazyvim-offline && ./installer/install.sh"
+echo "  7z 包 : 7z x ${NAME}.7z -olazyvim-offline && cd lazyvim-offline && ./installer/install.sh"
 echo "  .run  : chmod +x ${NAME}.run && ./${NAME}.run [--keep-config] [--keep-data]"
