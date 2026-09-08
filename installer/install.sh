@@ -82,7 +82,7 @@ rm -rf "$PREFIX/nvim"
 cp -a "$PKG_ROOT/payload/nvim" "$PREFIX/nvim"
 touch "$PREFIX/nvim/$MARKER"
 
-log "[2/6] 安装离线工具 (rg/fd/node/compiledb)"
+log "[2/6] 安装离线工具 (rg/fd/node/compiledb/nvim-filelist)"
 mkdir -p "$PREFIX"
 rm -rf "$PREFIX/tools"
 cp -a "$PKG_ROOT/payload/tools" "$PREFIX/tools"
@@ -90,6 +90,10 @@ touch "$PREFIX/tools/$MARKER"
 "$PREFIX/tools/bin/rg" --version >/dev/null || die "包内 rg 无法运行"
 "$PREFIX/tools/bin/compiledb" --help >/dev/null || die "包内 compiledb 无法运行"
 "$PREFIX/tools/bin/compiledb-rake" --help >/dev/null || die "包内 compiledb-rake 无法运行"
+"$PREFIX/tools/bin/nvim-filelist" --help >/dev/null || die "包内 nvim-filelist 无法运行"
+for tool in find realpath sort mktemp; do
+    command -v "$tool" >/dev/null || die "生成文件清单需要系统工具: $tool"
+done
 
 log "[3/6] 安装插件/mason/treesitter 数据"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nvim"
@@ -156,10 +160,12 @@ if ! printf '%s' "$PATH" | tr ':' '\n' | grep -qx "$HOME/.local/bin"; then
 fi
 
 log "[6/6] 冒烟测试"
-if ! timeout 120 "$BIN_DIR/nvim" --headless '+lua vim.api.nvim_command("qa!")' >/tmp/lazyvim-offline-smoke.log 2>&1; then
-    warn "headless 启动失败，日志: /tmp/lazyvim-offline-smoke.log"
+smoke_log="$(mktemp "${TMPDIR:-/tmp}/lazyvim-offline-smoke.XXXXXX.log")"
+if ! timeout 120 "$BIN_DIR/nvim" --headless '+lua vim.api.nvim_command("qa!")' >"$smoke_log" 2>&1; then
+    warn "headless 启动失败，日志: $smoke_log"
     warn "请运行: $BIN_DIR/nvim 查看具体报错"
 else
+    rm -f "$smoke_log"
     log "启动成功: $("$BIN_DIR/nvim" --version | awk 'NR==1')"
 fi
 

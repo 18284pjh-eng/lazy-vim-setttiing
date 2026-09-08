@@ -21,7 +21,7 @@ chmod +x lazyvim-offline-<版本>.run
 
 安装脚本会：
 
-1. 把 nvim 本体、runtime、rg/fd/node/compiledb 工具装到 `~/.local/opt/lazyvim-offline/`
+1. 把 nvim 本体、runtime、rg/fd/node/compiledb/nvim-filelist 工具装到 `~/.local/opt/lazyvim-offline/`
 2. 把全部插件、mason LSP、treesitter parser 装到 `~/.local/share/nvim/`
 3. 把配置装到 `~/.config/nvim/`
 4. 写启动包装器 `~/.local/bin/nvim`（PATH 隔离，屏蔽系统旧版本与脏依赖）
@@ -46,6 +46,32 @@ chmod +x lazyvim-offline-<版本>.run
 
 重复运行 install.sh 即为升级/修复（受管理的目录会增量同步并清理脏文件）。
 
+## C/C++ 本地文件清单
+
+在项目根执行（目录名替换为实际源码与 SDK 路径）：
+
+```bash
+~/.local/opt/lazyvim-offline/tools/bin/nvim-filelist --root "$PWD" -- src include ../sdk/include
+```
+
+使用 `--prefix DIR` 安装时，命令为 `DIR/tools/bin/nvim-filelist`。Neovim 内可运行
+`:!nvim-filelist --root /path/to/project -- src include`。需要系统自带 GNU find/coreutils；
+默认扫描 C/C++ 后缀，可用 `--ext c,h,cpp,hpp` 调整。普通终端使用完整命令路径即可。
+
+清单 `tree_t.f` 只在本机生成，通过 Git 本地排除规则保持未跟踪（支持 worktree），不改项目
+`.gitignore`；如果已经被跟踪，生成器停止，需自行处理。新增/删除文件后重新生成；每次导航
+自动重读清单，不需重启。扫描失败保留原清单。
+
+`gd` 定位 include 或优先使用 LSP 跳转定义，`gr` 优先查语义引用；LSP 不可用时显示清单内的
+文本候选。`:FilelistGrep` 强制在清单内搜索光标下完整词，`Ctrl-o` 返回。
+按 `<Space>uJ` 切换“Filelist 直接文本匹配”（在 `<Space>u` 菜单显示状态）：开启后 C/C++ 的
+`gd/gr` 不请求 LSP，直接使用清单，include 仍按清单定位；清单缺失/为空时提示。再次按下恢复
+LSP 优先。开关作用于当前会话，默认关闭；在 `lua/config/options.lua` 设置
+`vim.g.filelist_text_only = true` 可默认开启。其他 LSP 功能继续工作。
+`:FilelistUse /path/to/tree_t.f` 在当前标签页选用清单；路径按原文输入，空格不加引号，
+无参数恢复自动选择。清单不替代编译数据库，文本匹配不等于语义定义或完整引用，且读取磁盘内容。
+开关关闭且没有清单时保留原有导航。更多规则见包内 `docs/filelist-navigation.md`。
+
 ## 卸载 / 回滚
 
 ```bash
@@ -63,7 +89,7 @@ sha256sum -c lazyvim-offline-<版本>.SHA256SUMS
 
 - 启动报错先看 `~/.local/bin/nvim` 是否存在且指向本包；
 - `:checkhealth` 查看运行环境；
-- 若冒烟测试失败，日志在 `/tmp/lazyvim-offline-smoke.log`。
+- 若冒烟测试失败，安装器会显示独立日志路径（通常为 `/tmp/lazyvim-offline-smoke.*.log`）。
 - Makefile 项目可使用 `compiledb --full-path --overwrite --no-build make [参数]` 生成
   `compile_commands.json`；Rakefile 项目使用 `compiledb-rake [任务]`。两者都要从项目根运行。
 - 不要在内网运行 `:Lazy sync`、`:MasonUpdate` 或 `:TSUpdate`。离线包不会自动下载缺失组件；

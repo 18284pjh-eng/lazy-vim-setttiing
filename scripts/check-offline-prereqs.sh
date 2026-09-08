@@ -74,6 +74,9 @@ if [ -d "$DATA_DIR/site/parser" ]; then
     done
 fi
 
+# The pyright CLI and its LSP entry point are separate launchers.
+[ -x "$DATA_DIR/mason/bin/pyright-langserver" ] || fail '缺少或不可执行的 Mason 启动器: pyright-langserver（包: pyright）'
+
 if [ "$missing" -ne 0 ]; then
     cat >&2 <<EOF
 

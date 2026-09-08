@@ -78,10 +78,47 @@ chmod +x lazyvim-offline-<版本>.run
 - **不在内网自动下载**：lazy.nvim 缺失时直接报错；插件、Mason、Treesitter 的自动安装和
   更新检查均关闭。构建机会在复制 payload 前检查所有锁定插件的提交，以及本配置要求的运行时。
 
+## C/C++ 文件清单导航
+
+在项目根生成本机专用的 `tree_t.f`，指定要导航的源码和 SDK 目录：
+
+```bash
+~/.local/opt/lazyvim-offline/tools/bin/nvim-filelist \
+  --root "$PWD" -- src include ../sdk/include
+```
+
+目录相对于 `--root`，也可以使用绝对路径；必须显式指定扫描目录。默认后缀为
+`c,h,cc,cpp,cxx,hh,hpp`，可用 `--ext c,h` 调整。自定义安装前缀时替换上述路径；
+在 Neovim 内可执行 `:!nvim-filelist --root /path/to/project -- src include`。
+
+- `gd`：字面量 include 优先在清单内找头文件；重名时显示候选路径和预览。函数、结构体等
+  符号先查询 LSP，失败或等待 2 秒后显示清单内的同名文本候选。
+- `gr`：先查询 LSP 语义引用；无结果时显示“文本匹配（非语义引用）”。
+- `<Space>uJ`：切换 **Filelist 直接文本匹配**，在 LazyVim 的 `<Space>u` 菜单显示开关状态。
+  默认关闭；开启后 C/C++ 的 `gd/gr` 直接搜索清单内文本，不发起 LSP 定义/引用请求，也不等待超时。
+  include 仍优先按清单定位头文件；清单缺失或为空时提示，不转回 LSP。再次按下恢复 LSP 优先。
+- `:FilelistGrep` / `:FilelistGrep shared`：直接在清单内按完整词搜索光标下标识符或指定词。
+- `:FilelistUse /path/to/tree_t.f`：当前标签页选用清单，适用于单独打开共享 SDK；路径按原文输入，
+  空格不加引号，`$`、`%` 不展开。无参数执行 `:FilelistUse` 恢复自动选择。
+- `Ctrl-o`：返回跳转前的位置。开关关闭且没有清单时沿用原有 LSP 导航；Python/Verilog 行为不变。
+
+开关在当前 Neovim 会话全局生效，重启默认关闭；若希望默认开启，在
+`lua/config/options.lua` 加入 `vim.g.filelist_text_only = true`。切换会取消本模块正在等待的 LSP
+导航请求，防止旧结果突然跳转；补全、诊断等其他 LSP 功能继续工作。
+
+生成器只在 Git 的本地 `info/exclude` 添加排除规则，不改 `.gitignore`，不提交清单；
+已被 Git 跟踪的 `tree_t.f` 会报错。支持外部 SDK、空格路径、worktree；扫描失败保留旧清单。
+新增、删除文件或 SDK 路径变化后，重新执行生成命令；已有文件只改内容不需重建清单。
+每次导航重新读取清单，跳过失效条目，空清单不会扩大为全项目搜索。
+
+清单不包含编译参数，不能取代 `compile_commands.json`，也不能确定真实的 include 搜索顺序。
+LSP 结果可位于清单之外；文本候选可能是注释、调用或声明，读取磁盘内容，不保证反映未保存修改。
+完整规则见 [文件清单导航说明](docs/filelist-navigation.md)。
+
 ## C/C++ 语义跳转与搜索
 
-- 在 C/C++ 文件中，`gd` 跳转光标下的定义，`gr` 查找语义引用。`#include "header.h"` 也通过
-  clangd 的 definition 请求跳转；不额外绑定 F12。
+- 没有文件清单时，`gd` 跳转光标下的定义，`gr` 查找语义引用，include 由 clangd 定位。
+  有清单时采用上面的优先级；不额外绑定 F12。
 - clangd 自动识别项目根目录、`build/`、`cmake-build-*`、`out/build/` 内已有的
   `compile_commands.json`。CMake 项目在项目根执行：
 
@@ -121,7 +158,8 @@ chmod +x lazyvim-offline-<版本>.run
 
 - 离线包仅支持 x86_64 + glibc ≥ 2.34（Debian 12/13 满足）；安装器会在不满足时停止。
 - 构建机需要 `bash`、`git`、`7z`、`tar`、`gzip`、`node`、`rg`，以及 `fd` 或 Debian 的
-  `fdfind`。先运行 `./scripts/check-offline-prereqs.sh` 可只检查缓存完整性。
+  `fdfind`。生成清单还使用 Debian 自带的 GNU find/coreutils（`find`、`realpath`、`sort`、`mktemp`）。
+  先运行 `./scripts/check-offline-prereqs.sh` 可只检查缓存完整性。
 - 若预检提示插件提交不匹配，在构建机执行 `:Lazy restore`；提示缺少组件时按所列名称显式
   补齐，再重新运行预检和打包。
 - 内网目标机不要运行 `:Lazy sync`、`:MasonUpdate` 或 `:TSUpdate`；这些是构建机联网维护时

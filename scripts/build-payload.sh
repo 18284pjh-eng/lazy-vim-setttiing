@@ -21,7 +21,7 @@ MASON_PACKAGES=(
 )
 MASON_BINARIES=(
     bash-language-server clangd lua-language-server markdown-toc markdownlint-cli2
-    marksman pyright ruff shellcheck shfmt stylua verible-verilog-ls
+    marksman pyright pyright-langserver ruff shellcheck shfmt stylua verible-verilog-ls
 )
 
 err() { echo "错误: $*" >&2; exit 1; }
@@ -60,6 +60,7 @@ tar -xJf "$COMPILEDB_ARCHIVE" -C "$compiledb_tmp"
 [ -x "$compiledb_tmp/compiledb" ] || err "compiledb 归档缺少可执行文件"
 install -m 0755 "$compiledb_tmp/compiledb" "$P/tools/bin/compiledb"
 install -m 0755 "$REPO_ROOT/scripts/compiledb-rake.sh" "$P/tools/bin/compiledb-rake"
+install -m 0755 "$REPO_ROOT/scripts/nvim-filelist.sh" "$P/tools/bin/nvim-filelist"
 
 echo "==> 3/5 插件 (lazy) / treesitter parser (site) / 必需 mason 包"
 for d in lazy site; do
@@ -72,6 +73,12 @@ done
 for binary in "${MASON_BINARIES[@]}"; do
     cp -a "$DATA_DIR/mason/bin/$binary" "$P/data/nvim/mason/bin/$binary"
 done
+# Mason's LuaLS shim can contain the build host's absolute installation path.
+cat > "$P/data/nvim/mason/packages/lua-language-server/lua-language-server" <<'EOF'
+#!/usr/bin/env bash
+exec "$(dirname "$(readlink -f "$0")")/libexec/bin/lua-language-server" "$@"
+EOF
+chmod 0755 "$P/data/nvim/mason/packages/lua-language-server/lua-language-server"
 
 echo "==> 4/5 清理 payload 中的临时/缓存文件"
 find "$P" -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} + 2>/dev/null || true

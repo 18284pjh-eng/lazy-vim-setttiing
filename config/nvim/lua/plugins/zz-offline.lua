@@ -82,6 +82,27 @@ return {
     "neovim/nvim-lspconfig",
     opts = function(_, opts)
       opts.servers = opts.servers or {}
+      local all = opts.servers["*"] or {}
+      all.keys = all.keys or {}
+      vim.list_extend(all.keys, {
+        {
+          "gd",
+          function()
+            require("config.filelist").navigate("definition")
+          end,
+          desc = "Goto Definition",
+          has = false,
+        },
+        {
+          "gr",
+          function()
+            require("config.filelist").navigate("references")
+          end,
+          desc = "References",
+          nowait = true,
+        },
+      })
+      opts.servers["*"] = all
       local clangd = opts.servers.clangd or {}
       local base_cmd = type(clangd.cmd) == "table" and vim.deepcopy(clangd.cmd) or { "clangd" }
       clangd.cmd = function(dispatchers, config)

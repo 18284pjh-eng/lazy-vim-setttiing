@@ -4,6 +4,7 @@
 # 用法: ./scripts/verify-release.sh dist/lazyvim-offline-<ver>.7z|.run
 set -euo pipefail
 PKG="${1:?用法: verify-release.sh <dist/*.7z|*.run>}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d /tmp/verify-lazyvim-offline.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -29,6 +30,8 @@ case "$PKG" in
         for f in payload/nvim/bin/nvim payload/nvim/runtime/doc/nvim.txt \
                  payload/tools/bin/rg payload/tools/bin/fd payload/tools/bin/node \
                  payload/tools/bin/compiledb payload/tools/bin/compiledb-rake \
+                 payload/tools/bin/nvim-filelist \
+                 docs/filelist-navigation.md config/nvim/lua/config/filelist.lua \
                  third_party/compiledb-go/v1.7.1/LICENSE \
                  third_party/compiledb-go/v1.7.1/compiledb-go-v1.7.1.tar.gz \
                  payload/data/nvim/lazy config/nvim/init.lua \
@@ -77,6 +80,8 @@ done
 
 log "全部 Mason 启动器（模拟 wrapper 的 PATH 隔离）"
 PREFIX_DIR="$HOME/.local/opt/lazyvim-offline"
+[ -x "$HOME/.local/share/nvim/mason/bin/pyright-langserver" ] \
+    || { echo "缺少 Python LSP 启动器: pyright-langserver" >&2; exit 1; }
 for i in "${!MASON_BINARIES[@]}"; do
     binary="${MASON_BINARIES[$i]}"
     check_arg="${MASON_CHECK_ARGS[$i]}"
@@ -88,7 +93,9 @@ done
 
 log "干净 HOME 下完整插件启动"
 mkdir -p "$HOME/.cache" "$HOME/.local/state"
-timeout 300 "$BIN" --headless '+lua vim.defer_fn(function()
+timeout 60 "$BIN" --headless '+lua vim.defer_fn(function()
+    local ok, err = xpcall(function()
+    vim.api.nvim_exec_autocmds("User", { pattern = "VeryLazy" })
     local plug = require("lazy.core.config").plugins or {}
     local n = 0
     for _, _ in pairs(plug) do n = n + 1 end
@@ -98,6 +105,8 @@ timeout 300 "$BIN" --headless '+lua vim.defer_fn(function()
     assert(vim.fn.executable("rg") == 1, "rg 不可用")
     assert(vim.fn.executable("fd") == 1, "fd 不可用")
     assert(vim.fn.executable("compiledb") == 1, "compiledb 不可用")
+    assert(vim.fn.executable("nvim-filelist") == 1, "nvim-filelist 不可用")
+    assert(vim.fn.exists(":FilelistGrep") == 2, "FilelistGrep 未注册")
     local rg_version = vim.fn.system({ "rg", "--version" })
     assert(vim.v.shell_error == 0 and #rg_version > 0, "rg 无法启动")
     local compiledb_version = vim.fn.system({ "compiledb", "--help" })
@@ -108,22 +117,34 @@ timeout 300 "$BIN" --headless '+lua vim.defer_fn(function()
     assert(vim.fn.getreg("0") == "clipboard-check\n", "内部复制失败")
     vim.fn.setreg("+", "clipboard-check")
     assert(vim.fn.getreg("+") == "clipboard-check", "+ 寄存器后备复制失败")
-    print("插件注册: " .. n)
-    print("rg/fd/compiledb/clipboard: ok")
+    io.stdout:write("插件注册: " .. n .. "\nrg/fd/compiledb/nvim-filelist/clipboard: ok\n")
+    end, debug.traceback)
+    if not ok then io.stderr:write(err .. "\n"); vim.cmd("cquit 1") end
     vim.api.nvim_command("qa!")
-end, 20000)' 2>&1 | tail -3
+end, 500)' 2>&1 | tail -10
 
 log "C 缓冲区 clangd 附着"
 mkdir -p "$WORK/workspace"
 touch "$WORK/workspace/test.c"
 timeout 90 "$BIN" --headless "$WORK/workspace/test.c" '+lua vim.defer_fn(function()
+    local ok, err = xpcall(function()
     local attached = false
     for _, client in ipairs(vim.lsp.get_clients({ bufnr = 0 })) do
       attached = attached or client.name == "clangd"
     end
     assert(attached, "clangd 未附着到 C 缓冲区")
     print("clangd: attached")
+    end, debug.traceback)
+    if not ok then io.stderr:write(err .. "\n"); vim.cmd("cquit 1") end
     vim.cmd("qa!")
 end, 12000)' 2>&1 | tail -3
+
+log "已安装的生成器、清单导航与真实 C/Python/Verilog 集成"
+FILELIST_CONFIG="$HOME/.config/nvim" \
+FILELIST_GENERATOR="$PREFIX_DIR/tools/bin/nvim-filelist" \
+FILELIST_DATA="$HOME/.local/share/nvim/lazy/snacks.nvim" \
+    timeout 60 "$BIN" -u NONE -n --headless -l "$REPO_ROOT/scripts/test-filelist.lua"
+FILELIST_INTEGRATION_TEST="$REPO_ROOT/scripts/test-filelist-integration.lua" \
+    timeout 120 "$BIN" --headless '+lua dofile(vim.env.FILELIST_INTEGRATION_TEST)'
 
 log "全部通过 ✓"
