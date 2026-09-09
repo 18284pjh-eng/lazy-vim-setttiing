@@ -153,7 +153,7 @@ local function test()
     return {}
   end
   nav.navigate("definition")
-  assert(picker.finder and picker.title:find("非语义引用"))
+  assert(picker.finder and picker.title:find("定义候选"))
 
   -- Drive the actual rg batching finder through Snacks' async runtime.
   local data = vim.env.FILELIST_DATA or (vim.fn.stdpath("data") .. "/lazy/snacks.nvim")
@@ -171,6 +171,74 @@ local function test()
     assert(nav.select().members[item.file], "search escaped filelist")
     assert(item.file ~= project .. "/excluded.c")
   end
+  assert(
+    vim.tbl_contains(notes, function(message)
+      return message:find("未识别到函数定义") ~= nil
+    end, { predicate = true }),
+    "gd without definitions must explain the text fallback"
+  )
+  local function matches(files, kind, language)
+    local items, failure = {}, nil
+    local task = Async.new(function()
+      nav.finder({ files = files }, "target", kind, language)()(function(item)
+        items[#items + 1] = item
+      end)
+    end)
+    task:on("error", function(err)
+      failure = err
+    end)
+    task:wait()
+    assert(not failure, failure)
+    return items
+  end
+  local functions = project .. "/syntax.c"
+  write(functions, {
+    "typedef int result_t;",
+    "int target(int x);", -- return type plus semicolon is a prototype
+    "int consume(void) { target(1); return target(2); }",
+    "static inline int target(int x) { return target(x - 1); }", -- recursive call on the same line
+    "result_t",
+    "target(",
+    "  int x)",
+    "{",
+    "  return x;",
+    "}",
+    "const char *",
+    "target(void)",
+    "{",
+    '  return "text";',
+    "}",
+    "/* int target(void) { return 0; } */",
+    'const char *text = "int target(void) { return 0; }";',
+    "#define CALLBACK target",
+    "void target(int (*callback)(int)) { callback(1); }",
+  })
+  local defs = matches({ functions }, "definition")
+  assert(
+    #defs == 4 and defs[1].pos[1] == 4 and defs[2].pos[1] == 6 and defs[3].pos[1] == 12 and defs[4].pos[1] == 19,
+    vim.inspect(defs)
+  )
+  local refs, all = matches({ functions }, "references"), matches({ functions })
+  assert(#all == #refs + #defs, "references must exclude only function definition names")
+  assert(
+    vim.tbl_contains(refs, function(item)
+      return item.pos[1] == 4 and item.pos[2] > defs[1].pos[2]
+    end, { predicate = true }),
+    "recursive call on definition line was lost"
+  )
+  local cpp = project .. "/syntax.cpp"
+  write(cpp, { "struct Device { int target(); };", "int Device::target() { return target(); }" })
+  defs = matches({ cpp }, "definition", "cpp")
+  assert(#defs == 1 and defs[1].pos[1] == 2 and defs[1].pos[2] == 12, vim.inspect(defs))
+  assert(#matches({ cpp }, "references", "cpp") == 2)
+  local parse = vim.treesitter.get_string_parser
+  vim.treesitter.get_string_parser = function()
+    error("test: parser unavailable")
+  end
+  assert(#matches({ functions }, "definition") == #all, "missing parser must preserve text search")
+  assert(#matches({ functions }, "references") == #all)
+  vim.treesitter.get_string_parser = parse
+  print("gd/gr: multiline, pointer/custom return types, prototypes, recursion, comments, C++ and parser fallback OK")
   local batches, actual_system = 0, vim.system
   local many = { files = {} }
   for i = 1, 350 do
@@ -279,7 +347,7 @@ local function test()
   end
   for _, kind in ipairs({ "definition", "references" }) do
     nav.navigate(kind)
-    assert(picker.finder and picker.title:find("非语义引用"))
+    assert(picker.finder and picker.title:find(kind == "definition" and "定义候选" or "非语义引用"))
   end
   edit(project .. "/src/main.c")
   nav.navigate("definition")

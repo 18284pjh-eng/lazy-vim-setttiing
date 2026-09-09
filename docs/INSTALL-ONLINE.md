@@ -62,8 +62,10 @@ bash ./installer/install.sh --prefix DIR    # 自定义安装前缀
 `.gitignore`；如果已经被跟踪，生成器停止，需自行处理。新增/删除文件后重新生成；每次导航
 自动重读清单，不需重启。扫描失败保留原清单。
 
-`gd` 定位 include 或优先使用 LSP 跳转定义，`gr` 优先查语义引用；LSP 不可用时显示清单内的
-文本候选。`:FilelistGrep` 强制在清单内搜索光标下完整词，`Ctrl-o` 返回。
+`gd` 定位 include 或优先使用 LSP 跳转定义，`gr` 优先查语义引用。进入清单搜索后，`gd`
+优先显示函数定义候选，找不到时提示并回退全部文本；`gr` 排除识别出的函数定义位置，保留其余文本。
+筛选复用包内 C/C++ Tree-sitter，不启动 LSP、不需要编译数据库；支持多行函数头和指针返回类型。
+声明、注释等仍可能出现在 `gr`，不等于真实语义引用。`:FilelistGrep` 始终搜索全部同名文本，`Ctrl-o` 返回。
 按 `<Space>uJ` 切换“Filelist 直接文本匹配”（在 `<Space>u` 菜单显示状态）：开启后 C/C++ 的
 `gd/gr` 不请求 LSP，直接使用清单，include 仍按清单定位；清单缺失/为空时提示。再次按下恢复
 LSP 优先。开关作用于当前会话，默认关闭；在 `lua/config/options.lua` 设置

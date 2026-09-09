@@ -94,13 +94,41 @@ function M.headers(list, line, source)
   return items
 end
 
+-- Reuse the bundled syntax parser: return types/prototypes alone do not prove a
+-- definition, and semicolons may be inside a one-line function body.
+-- ponytail: syntax only; macro expansion and symbol identity still need LSP.
+local function definitions(file, language)
+  local ft = vim.filetype.match({ filename = file })
+  language = file:match("%.h$") and language or (ft == "c" or ft == "cpp") and ft or language
+  local source = table.concat(vim.fn.readfile(file), "\n")
+  local parser = vim.treesitter.get_string_parser(source, language)
+  local tree = assert(parser:parse()[1])
+  local query = vim.treesitter.query.parse(language, "(function_definition declarator: (_) @name)")
+  local positions = {}
+  for _, node in query:iter_captures(tree:root(), source) do
+    -- Follow the declared name through pointer/parenthesized/qualified wrappers,
+    -- never the parameter list or body (which may contain the same identifier).
+    while node and node:type() ~= "identifier" and node:type() ~= "field_identifier" do
+      node = node:field("declarator")[1] or node:field("name")[1] or node:named_child(0)
+    end
+    if node then
+      local row, col = node:range()
+      positions[(row + 1) .. ":" .. col] = true
+    end
+  end
+  return positions
+end
+
 -- A custom Snacks finder keeps batching/cancellation inside the existing UI.
 -- Explicit file operands mean rg never recursively scans parent directories.
-function M.finder(list, word)
+function M.finder(list, word, kind, language)
+  language = language or "c"
   return function()
     return function(cb)
       local async = require("snacks.picker.util.async").running()
       local process
+      local other, found = {}, false
+      local last_file, positions, warned
       async:on("abort", function()
         if process then
           process:kill(15)
@@ -138,22 +166,55 @@ function M.finder(list, word)
           local event = vim.json.decode(line)
           if event.type == "match" and event.data.path.text and event.data.lines.text then
             local data = event.data
+            if kind and last_file ~= data.path.text then
+              last_file = data.path.text
+              positions = async:schedule(function()
+                local ok, result = pcall(definitions, last_file, language)
+                if not ok and not warned then
+                  warned = true
+                  notice("部分文件无法做语法筛选，可用 :FilelistGrep 查看全部文本: " .. last_file)
+                end
+                return ok and result or {}
+              end)
+            end
             for _, match in ipairs(data.submatches) do
-              cb({
+              local item = {
                 file = data.path.text,
                 pos = { data.line_number, match.start },
                 line = data.lines.text:gsub("[\r\n]+$", ""),
                 text = data.path.text .. ":" .. data.line_number .. ": " .. data.lines.text:gsub("[\r\n]+$", ""),
-              })
+              }
+              local definition = positions and positions[data.line_number .. ":" .. match.start]
+              if kind == "definition" then
+                if definition then
+                  found = true
+                  other = {}
+                  cb(item)
+                elseif not found then
+                  other[#other + 1] = item
+                end
+              elseif kind ~= "references" or not definition then
+                cb(item)
+              end
             end
           end
+        end
+      end
+      if kind == "definition" and not found then
+        async:schedule(function()
+          notice(
+            "未识别到函数定义，显示全部文本匹配；宏、变量和复杂语法可用 :FilelistGrep 检索"
+          )
+        end)
+        for _, item in ipairs(other) do
+          cb(item)
         end
       end
     end
   end
 end
 
-local function grep(list, word)
+local function grep(list, word, kind)
   if not list then
     notice("未找到 tree_t.f；请生成清单或使用 :FilelistUse 指定项目")
     return
@@ -171,8 +232,12 @@ local function grep(list, word)
     return
   end
   Snacks.picker({
-    title = "文本匹配（非语义引用）: " .. word,
-    finder = M.finder(list, word),
+    title = (
+      kind == "definition" and "定义候选（非语义）: "
+      or kind == "references" and "引用文本（排除函数定义，非语义引用）: "
+      or "文本匹配（非语义引用）: "
+    ) .. word,
+    finder = M.finder(list, word, kind, vim.bo.filetype),
     format = "file",
     preview = "file",
     jump = { match = false },
@@ -320,10 +385,10 @@ function M.navigate(kind)
   end
   local word = vim.fn.expand("<cword>")
   if text_only then
-    return grep(list, word)
+    return grep(list, word, kind)
   end
   semantic("textDocument/" .. kind, function()
-    grep(list, word)
+    grep(list, word, kind)
   end)
 end
 
