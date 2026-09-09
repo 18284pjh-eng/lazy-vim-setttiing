@@ -34,6 +34,21 @@ log()  { echo "==> $*"; }
 warn() { echo "!!  $*" >&2; }
 die()  { echo "错误: $*" >&2; exit 1; }
 
+check_binary() {
+    local rc=0
+    "$@" >/dev/null || rc=$?
+    [ "$rc" -ne 0 ] || return 0
+    warn "程序无法运行 (退出码 $rc): $1"
+    stat -c '%A %a %U:%G %n' -- "$1" >&2 || true
+    if command -v findmnt >/dev/null; then
+        findmnt -T "$1" -no TARGET,OPTIONS >&2 || true
+    fi
+    if command -v namei >/dev/null; then
+        namei -l "$1" >&2 || true
+    fi
+    die '安装未完成。已恢复包内程序的执行位；若仍 Permission denied，请检查目录权限、noexec 挂载或系统安全策略，并由管理员确认允许执行的位置。'
+}
+
 ARCH="$(uname -m)"
 [ "$ARCH" = "x86_64" ] || die "本离线包仅支持 x86_64，当前为 $ARCH"
 GLIBC_MAJMIN="$(ldd --version 2>/dev/null | awk 'NR==1 {print $NF}' | cut -d. -f1-2)"
@@ -81,16 +96,24 @@ mkdir -p "$PREFIX"
 rm -rf "$PREFIX/nvim"
 cp -a "$PKG_ROOT/payload/nvim" "$PREFIX/nvim"
 touch "$PREFIX/nvim/$MARKER"
+# GUI extractors and intermediate filesystems can discard executable bits.
+chmod u+x "$PREFIX/nvim/bin/nvim"
+check_binary "$PREFIX/nvim/bin/nvim" --version
 
 log "[2/6] 安装离线工具 (rg/fd/node/compiledb/nvim-filelist)"
 mkdir -p "$PREFIX"
 rm -rf "$PREFIX/tools"
 cp -a "$PKG_ROOT/payload/tools" "$PREFIX/tools"
 touch "$PREFIX/tools/$MARKER"
-"$PREFIX/tools/bin/rg" --version >/dev/null || die "包内 rg 无法运行"
-"$PREFIX/tools/bin/compiledb" --help >/dev/null || die "包内 compiledb 无法运行"
-"$PREFIX/tools/bin/compiledb-rake" --help >/dev/null || die "包内 compiledb-rake 无法运行"
-"$PREFIX/tools/bin/nvim-filelist" --help >/dev/null || die "包内 nvim-filelist 无法运行"
+for tool in rg fd node compiledb compiledb-rake nvim-filelist; do
+    chmod u+x "$PREFIX/tools/bin/$tool"
+done
+check_binary "$PREFIX/tools/bin/rg" --version
+check_binary "$PREFIX/tools/bin/fd" --version
+check_binary "$PREFIX/tools/bin/node" --version
+check_binary "$PREFIX/tools/bin/compiledb" --help
+check_binary "$PREFIX/tools/bin/compiledb-rake" --help
+check_binary "$PREFIX/tools/bin/nvim-filelist" --help
 for tool in find realpath sort mktemp; do
     command -v "$tool" >/dev/null || die "生成文件清单需要系统工具: $tool"
 done

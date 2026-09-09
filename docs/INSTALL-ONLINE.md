@@ -87,6 +87,29 @@ sha256sum -c lazyvim-offline-<版本>.SHA256SUMS
 
 ## 故障排查
 
+- 第 1/2 步报 `Permission denied` 时，安装尚未完成，`~/.local/bin/nvim` 可能还没有生成。
+  先在解压目录检查源文件与安装目标的权限：
+
+  ```bash
+  stat -c '%A %a %U:%G %n' ./payload/tools/bin/rg "$HOME/.local/opt/lazyvim-offline/tools/bin/rg"
+  findmnt -T "$HOME/.local/opt/lazyvim-offline/tools/bin/rg" -no TARGET,OPTIONS
+  namei -l "$HOME/.local/opt/lazyvim-offline/tools/bin/rg"
+  ```
+
+  若文件缺少执行位（例如 `644`），旧包可以在解压目录执行以下命令后重装；需修复源文件，
+  因为重装会用 `cp -a` 重新覆盖目标权限：
+
+  ```bash
+  chmod u+x ./payload/nvim/bin/nvim ./payload/tools/bin/{rg,fd,node,compiledb,compiledb-rake,nvim-filelist}
+  bash ./installer/install.sh
+  hash -r
+  "$HOME/.local/bin/nvim" --version
+  ```
+
+  新安装器会主动恢复上述程序的执行位并检查可运行性。若文件已有 `x` 权限但仍被拒绝，
+  检查父目录权限、挂载选项中的 `noexec` 以及内网执行管控；`chmod` 不能解除这些限制，
+  应由管理员确认获准执行的安装位置。若插件/Mason 的权限也普遍丢失，优先在目标 Linux
+  机器使用原始 `.run` 包重新安装，避免先经其他系统解压后再拷贝散文件。
 - 启动报错先看 `~/.local/bin/nvim` 是否存在且指向本包；
 - `:checkhealth` 查看运行环境；
 - 若冒烟测试失败，安装器会显示独立日志路径（通常为 `/tmp/lazyvim-offline-smoke.*.log`）。
