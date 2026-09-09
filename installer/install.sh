@@ -78,6 +78,19 @@ repair_symlinks() {
 }
 repair_symlinks
 
+# Restore recorded execute bits on the installed filesystem, even when the
+# extraction filesystem cannot preserve Unix permissions. Paths are NUL-delimited.
+restore_executables() {
+    local subtree="$1" destination="$2" file
+    [ -f "$PKG_ROOT/payload/executables.list" ] || return 0
+    while IFS= read -r -d '' file; do
+        case "/$file/" in */../*) die "可执行文件清单包含越界路径: $file" ;; esac
+        case "$file" in
+            "$subtree/"*) chmod u+x -- "$destination/${file#"$subtree/"}" ;;
+        esac
+    done < "$PKG_ROOT/payload/executables.list"
+}
+
 refresh_tree() {
     local source="$1" destination="$2" replacement
     if command -v rsync >/dev/null 2>&1; then
@@ -96,8 +109,9 @@ mkdir -p "$PREFIX"
 rm -rf "$PREFIX/nvim"
 cp -a "$PKG_ROOT/payload/nvim" "$PREFIX/nvim"
 touch "$PREFIX/nvim/$MARKER"
-# GUI extractors and intermediate filesystems can discard executable bits.
+# Keep known entrypoints compatible with older packages without the manifest.
 chmod u+x "$PREFIX/nvim/bin/nvim"
+restore_executables nvim "$PREFIX/nvim"
 check_binary "$PREFIX/nvim/bin/nvim" --version
 
 log "[2/6] 安装离线工具 (rg/fd/node/compiledb/nvim-filelist)"
@@ -108,6 +122,7 @@ touch "$PREFIX/tools/$MARKER"
 for tool in rg fd node compiledb compiledb-rake nvim-filelist; do
     chmod u+x "$PREFIX/tools/bin/$tool"
 done
+restore_executables tools "$PREFIX/tools"
 check_binary "$PREFIX/tools/bin/rg" --version
 check_binary "$PREFIX/tools/bin/fd" --version
 check_binary "$PREFIX/tools/bin/node" --version
@@ -120,8 +135,10 @@ done
 
 log "[3/6] 安装插件/mason/treesitter 数据"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nvim"
+data_preserved=0
 if [ "$KEEP_DATA" = 1 ] && [ -e "$DATA_DIR" ]; then
     log "  --keep-data: 保留现有 $DATA_DIR（离线工具与 mason 包请自行核对）"
+    data_preserved=1
 elif [ -e "$DATA_DIR" ] && [ ! -f "$DATA_DIR/$MARKER" ]; then
     b="${DATA_DIR}.backup-$(ts)"
     mv "$DATA_DIR" "$b"
@@ -137,6 +154,9 @@ else
     mkdir -p "$(dirname "$DATA_DIR")"
     cp -a "$PKG_ROOT/payload/data/nvim" "$DATA_DIR"
     echo "installed-by=$RELEASE_VERSION" > "$DATA_DIR/$MARKER"
+fi
+if [ "$data_preserved" = 0 ]; then
+    restore_executables data/nvim "$DATA_DIR"
 fi
 
 log "[4/6] 安装配置到 ~/.config/nvim"

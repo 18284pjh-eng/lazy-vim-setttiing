@@ -12,7 +12,7 @@
 # 方式 A: 有 7z
 7z x lazyvim-offline-<版本>.7z -olazyvim-offline
 cd lazyvim-offline
-./installer/install.sh
+bash ./installer/install.sh
 
 # 方式 B: 无 7z（自解压包，只需 tar + gzip）
 chmod +x lazyvim-offline-<版本>.run
@@ -39,9 +39,9 @@ chmod +x lazyvim-offline-<版本>.run
 ## 选项
 
 ```bash
-./installer/install.sh --keep-config   # 不动已有 ~/.config/nvim
-./installer/install.sh --keep-data     # 不动已有 ~/.local/share/nvim
-./installer/install.sh --prefix DIR    # 自定义安装前缀
+bash ./installer/install.sh --keep-config   # 不动已有 ~/.config/nvim
+bash ./installer/install.sh --keep-data     # 不动已有 ~/.local/share/nvim
+bash ./installer/install.sh --prefix DIR    # 自定义安装前缀
 ```
 
 重复运行 install.sh 即为升级/修复（受管理的目录会增量同步并清理脏文件）。
@@ -106,10 +106,20 @@ sha256sum -c lazyvim-offline-<版本>.SHA256SUMS
   "$HOME/.local/bin/nvim" --version
   ```
 
-  新安装器会主动恢复上述程序的执行位并检查可运行性。若文件已有 `x` 权限但仍被拒绝，
+  v6.2.2 起，发布包包含 `payload/executables.list`（NUL 分隔的原始可执行文件路径），
+  安装器在目标目录恢复执行位，覆盖 nvim、工具、Mason 与插件中的可执行文件，
+  不给普通数据文件添加执行位；`--keep-data` 保留的数据不修改。通过 `bash` 启动安装器，
+  即使安装器本身丢失执行位也可运行。旧包不含此清单，建议换用 v6.2.2 或更新包。
+
+  已核验 v6.2.1 原始 `.7z` 中 `rg` 的权限是 `755`，本机 7-Zip 25.01 和 p7zip 16.02
+  解压均保留执行位。若解压后是 `644`，说明归档的 Unix 权限未被保留；仅凭 `7z x`
+  命令无法确定是哪一环节，可用 `7z i` 查看实现/版本、`findmnt -T .` 检查解压位置，
+  并对照 SHA256SUMS 确认传输的包未变化。新版安装器无需依赖解压器保留执行位。
+
+  若文件已有 `x` 权限但仍被拒绝，
   检查父目录权限、挂载选项中的 `noexec` 以及内网执行管控；`chmod` 不能解除这些限制，
-  应由管理员确认获准执行的安装位置。若插件/Mason 的权限也普遍丢失，优先在目标 Linux
-  机器使用原始 `.run` 包重新安装，避免先经其他系统解压后再拷贝散文件。
+  应由管理员确认获准执行的安装位置。也可在目标 Linux 机器直接使用原始 `.run` 包安装，
+  由 tar 解压，避免先经其他系统解压后再拷贝散文件。
 - 启动报错先看 `~/.local/bin/nvim` 是否存在且指向本包；
 - `:checkhealth` 查看运行环境；
 - 若冒烟测试失败，安装器会显示独立日志路径（通常为 `/tmp/lazyvim-offline-smoke.*.log`）。

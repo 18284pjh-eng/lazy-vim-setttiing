@@ -2,6 +2,7 @@
 # 对已构建的 7z 或 .run 发布包做冒烟验证：
 #   1) 解压/自解压完整性  2) 关键文件存在  3) 干净 HOME 下完整插件加载
 # 用法: ./scripts/verify-release.sh dist/lazyvim-offline-<ver>.7z|.run
+# VERIFY_STRIP_EXEC=1: 模拟 7z 解压时所有普通文件丢失执行位。
 set -euo pipefail
 PKG="${1:?用法: verify-release.sh <dist/*.7z|*.run>}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -38,6 +39,11 @@ case "$PKG" in
                  installer/install.sh installer/nvim-wrapper.sh; do
             [ -e "$WORK/pkg/$f" ] || { echo "缺失: $f" >&2; exit 1; }
         done
+        if [ "${VERIFY_STRIP_EXEC:-0}" = 1 ]; then
+            log "模拟解压丢失执行位（包括安装器、Mason 和插件）"
+            [ -s "$WORK/pkg/payload/executables.list" ] || { echo "缺失 executables.list" >&2; exit 1; }
+            find "$WORK/pkg" -type f -exec chmod a-x {} +
+        fi
         bash "$WORK/pkg/installer/install.sh" > "$WORK/install.log" 2>&1 \
             || { echo "install.sh 失败:" >&2; tail -20 "$WORK/install.log" >&2; exit 1; }
         ;;

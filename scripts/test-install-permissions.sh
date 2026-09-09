@@ -27,6 +27,29 @@ done
 # No need to mutate the extracted source permissions to repair the install.
 [ "$(stat -c '%a' "$pkg/payload/tools/bin/rg")" = 644 ]
 printf 'install restores executable permissions and creates a working wrapper: OK\n'
+# Published manifests must also restore nested plugin/Mason entrypoints, while
+# leaving ordinary data files and --keep-data installations alone.
+data="$pkg/payload/data/nvim"
+mkdir -p "$data/mason/packages/test server" "$data/mason/bin"
+printf '#!/bin/sh\nexec "$(dirname "$0")/helper"\n' > "$data/mason/packages/test server/server"
+cp /bin/true "$data/mason/packages/test server/helper"
+chmod 0755 "$data/mason/packages/test server/"*
+touch "$data/README.md"
+ln -s '../packages/test server/server' "$data/mason/bin/server"
+printf '%s\0' 'data/nvim/mason/packages/test server/server' \
+    'data/nvim/mason/packages/test server/helper' > "$pkg/payload/executables.list"
+chmod 0644 "$data/mason/packages/test server/"*
+env -i HOME="$test_home" PATH=/usr/bin:/bin bash "$pkg/installer/install.sh" > "$work/manifest.log" 2>&1 \
+    || { cat "$work/manifest.log" >&2; exit 1; }
+installed_data="$test_home/.local/share/nvim"
+[ -x "$installed_data/mason/bin/server" ] || { echo 'Mason entrypoint lost execute permission' >&2; exit 1; }
+"$installed_data/mason/packages/test server/server"
+[ ! -x "$installed_data/README.md" ]
+[ ! -x "$data/mason/packages/test server/server" ]
+chmod 0644 "$installed_data/mason/packages/test server/server"
+env -i HOME="$test_home" PATH=/usr/bin:/bin bash "$pkg/installer/install.sh" --keep-data > "$work/keep.log" 2>&1
+[ ! -x "$installed_data/mason/bin/server" ]
+printf 'manifest restores nested executables, preserves data files and respects --keep-data: OK\n'
 # An executable may still be rejected by the OS; report evidence and stop.
 cat > "$pkg/payload/tools/bin/rg" <<'EOF'
 #!/bin/sh

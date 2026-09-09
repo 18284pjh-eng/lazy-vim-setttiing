@@ -49,15 +49,15 @@ git tag <版本>
 ```bash
 # 方式 A: 有 7z
 7z x lazyvim-offline-<版本>.7z -olazyvim-offline
-cd lazyvim-offline && ./installer/install.sh
+cd lazyvim-offline && bash ./installer/install.sh
 
 # 方式 B: 无 7z（自解压）
 chmod +x lazyvim-offline-<版本>.run
 ./lazyvim-offline-<版本>.run
 
 # 常用选项
-./installer/install.sh --keep-config   # 保留目标机已有 ~/.config/nvim，只装运行时
-./installer/install.sh --keep-data     # 保留目标机已有 ~/.local/share/nvim
+bash ./installer/install.sh --keep-config   # 保留目标机已有 ~/.config/nvim，只装运行时
+bash ./installer/install.sh --keep-data     # 保留目标机已有 ~/.local/share/nvim
 ```
 
 安装后用 `~/.local/bin/nvim` 启动（包装器已把离线包工具链与 `~/.local/bin`
@@ -73,6 +73,9 @@ chmod +x lazyvim-offline-<版本>.run
   - 目标机已有**外来**的 nvim/配置/数据 → 自动带时间戳备份（`*.backup-<ts>`）后再安装；
   - 已是自家管理的目录 → `rsync --delete` 增量刷新，自动清掉脏的/过期的 mason 包与旧 parser。
 - **幂等**：重复运行 install.sh 即升级/修复；`uninstall.sh [--restore-backups]` 可回滚。
+- **解压权限恢复**：v6.2.2 起记录包内原始可执行文件清单，安装时在目标目录恢复执行位，
+  覆盖 nvim、工具、Mason 和插件；普通数据文件不加执行位。用 `bash` 启动安装器，避免它自身
+  因解压丢失执行位而无法启动。`--keep-data` 保留的数据目录不做权限修改。
 - **可复现**：`lazy-lock.json` 固定插件版本；payload 带版本与 sha256 清单（manifest.txt）。
   仅当构建工作区无未提交修改时，发布物才附带与包内配置一致的 git bundle 供离线溯源。
 - **不在内网自动下载**：lazy.nvim 缺失时直接报错；插件、Mason、Treesitter 的自动安装和
