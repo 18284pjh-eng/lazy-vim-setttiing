@@ -95,23 +95,6 @@ function M.headers(list, line, source)
   return items
 end
 
--- Follow only the declared name, never initializer expressions or parameters.
-local function declared_name(node)
-  local callable = false
-  while node and not vim.tbl_contains({ "identifier", "field_identifier", "type_identifier" }, node:type()) do
-    local kind = node:type()
-    if kind == "structured_binding_declarator" then
-      return nil, false -- C++ binding names are captured individually.
-    elseif kind == "function_declarator" then
-      callable = true
-    elseif kind == "pointer_declarator" or kind == "array_declarator" or kind == "reference_declarator" then
-      callable = false
-    end
-    node = node:field("declarator")[1] or node:field("name")[1] or node:named_child(0)
-  end
-  return node, callable
-end
-
 local function python_definitions(tree, source)
   local query = vim.treesitter.query.parse(
     "python",
@@ -164,87 +147,65 @@ local function python_definitions(tree, source)
   return positions
 end
 
--- Reuse the bundled syntax parser; semicolons also terminate object definitions.
--- ponytail: syntax only; macro expansion and symbol identity still need LSP.
-local function definitions(file, language)
+-- C/C++ only rejects clear uses. Unknown syntax stays visible for the user.
+-- ponytail: syntax cannot resolve macros or symbol identity; keep ambiguity.
+local function definition_filter(file, language)
   local ft = vim.filetype.match({ filename = file })
   language = file:match("%.h$") and (language == "cpp" and "cpp" or "c") or ft
   if not supported[language] then
-    return {}
+    return nil
   end
   local source = table.concat(vim.fn.readfile(file), "\n")
-  local parser = vim.treesitter.get_string_parser(source, language)
-  local tree = assert(parser:parse()[1])
+  local tree = assert(vim.treesitter.get_string_parser(source, language):parse()[1])
   if language == "python" then
-    return python_definitions(tree, source)
-  end
-  local query = vim.treesitter.query.parse(language, [[
-    (function_definition declarator: (_) @definition)
-    (struct_specifier name: (_) @definition body: (_))
-    (union_specifier name: (_) @definition body: (_))
-    (enum_specifier name: (_) @definition body: (_))
-    (enumerator name: (_) @definition)
-    (type_definition declarator: (_) @definition)
-    (preproc_def name: (_) @definition)
-    (preproc_function_def name: (_) @definition)
-    (declaration declarator: (_) @object)
-    (field_declaration declarator: (_) @object)
-    (parameter_declaration declarator: (_) @parameter)
-  ]] .. (language == "cpp" and [[
-    (class_specifier name: (_) @definition body: (_))
-    (alias_declaration name: (_) @definition)
-    (structured_binding_declarator (identifier) @definition)
-  ]] or ""))
-  local positions = {}
-  for id, declarator in query:iter_captures(tree:root(), source) do
-    local node, callable = declared_name(declarator)
-    local capture, owner = query.captures[id], declarator:parent()
-    local accept = capture == "definition"
-    if capture == "object" then
-      local storage = {}
-      for child in owner:iter_children() do
-        if child:type() == "storage_class_specifier" then
-          storage[vim.treesitter.get_node_text(child, source)] = true
-        end
-      end
-      -- int (*fp)(void) defines an object; int *fn(void) is only a prototype.
-      accept = not callable
-        and not (storage.extern and declarator:type() ~= "init_declarator")
-        and not (owner:type() == "field_declaration" and storage.static and not storage.inline)
-    elseif capture == "parameter" then
-      -- Only parameters of function bodies define local variables; prototype
-      -- parameter names and nested callback signatures do not.
-      owner = owner:parent()
-      while owner do
-        local kind = owner:type()
-        if kind == "function_definition" then
-          accept = true
-          break
-        end
-        if kind == "parameter_declaration" or kind == "declaration" or kind == "field_declaration" then
-          break
-        end
-        owner = owner:parent()
-      end
-    end
-    if node and accept then
-      local row, col = node:range()
-      positions[(row + 1) .. ":" .. col] = true
+    local positions = python_definitions(tree, source)
+    return function(row, col)
+      return positions[row .. ":" .. col] == true
     end
   end
-  return positions
+  return function(row, col)
+    local node = tree:root():named_descendant_for_range(row - 1, col, row - 1, col)
+    local use, text = false, false
+    while node do
+      local kind = node:type()
+      if node:has_error() or kind:find("^preproc_") then
+        return true
+      end
+      if
+        kind == "comment"
+        or kind == "string_literal"
+        or kind == "char_literal"
+        or kind == "call_expression"
+        or kind == "assignment_expression"
+        or kind == "update_expression"
+        or kind == "return_statement"
+      then
+        use = true
+      end
+      text = text or kind == "comment" or kind == "string_literal" or kind == "char_literal"
+      if kind == "declaration" or kind == "function_definition" or kind == "field_declaration" then
+        return not use
+      end
+      node = node:parent()
+    end
+    return not text -- Top-level calls may be declaration-generating macros.
+  end
 end
 
 -- A custom Snacks finder keeps batching/cancellation inside the existing UI.
 -- Explicit file operands mean rg never recursively scans parent directories.
 function M.finder(list, word, kind, language)
   language = language or "c"
+  local loose = language ~= "python"
+  if loose and kind == "references" then
+    kind = nil -- gr is an unfiltered search, not the complement of gd.
+  end
   return function()
     return function(cb)
       local async = require("snacks.picker.util.async").running()
       local process
       local other, found = {}, false
-      local last_file, positions, warned
+      local last_file, accepts, warned
       async:on("abort", function()
         if process then
           process:kill(15)
@@ -284,13 +245,13 @@ function M.finder(list, word, kind, language)
             local data = event.data
             if kind and last_file ~= data.path.text then
               last_file = data.path.text
-              positions = async:schedule(function()
-                local ok, result = pcall(definitions, last_file, language)
+              accepts = async:schedule(function()
+                local ok, result = pcall(definition_filter, last_file, language)
                 if not ok and not warned then
                   warned = true
                   notice("部分文件无法做语法筛选，可用 :FilelistGrep 查看全部文本: " .. last_file)
                 end
-                return ok and result or {}
+                return ok and result or nil
               end)
             end
             for _, match in ipairs(data.submatches) do
@@ -300,8 +261,12 @@ function M.finder(list, word, kind, language)
                 line = data.lines.text:gsub("[\r\n]+$", ""),
                 text = data.path.text .. ":" .. data.line_number .. ": " .. data.lines.text:gsub("[\r\n]+$", ""),
               }
-              local definition = positions and positions[data.line_number .. ":" .. match.start]
-              if kind == "definition" then
+              local definition = accepts and accepts(data.line_number, match.start)
+              if kind == "definition" and loose then
+                if definition ~= false then
+                  cb(item)
+                end
+              elseif kind == "definition" then
                 if definition then
                   found = true
                   other = {}
@@ -316,7 +281,7 @@ function M.finder(list, word, kind, language)
           end
         end
       end
-      if kind == "definition" and not found then
+      if kind == "definition" and not loose and not found then
         async:schedule(function()
           notice("未识别到符号定义，显示全部文本匹配；可用 :FilelistGrep 查看全部同名位置")
         end)
@@ -348,7 +313,7 @@ local function grep(list, word, kind)
   Snacks.picker({
     title = (
       kind == "definition" and "定义候选（非语义）: "
-      or kind == "references" and "引用文本（排除定义，非语义引用）: "
+      or kind == "references" and (vim.bo.filetype == "python" and "引用文本（排除定义，非语义引用）: " or "引用候选（全部文本，非语义引用）: ")
       or "文本匹配（非语义引用）: "
     ) .. word,
     finder = M.finder(list, word, kind, vim.bo.filetype),

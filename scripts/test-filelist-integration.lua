@@ -97,11 +97,16 @@ local function test()
   edit(project .. "/src/main.c", 3, "shared")
   for _, lhs in ipairs({ "gd", "gr" }) do
     key(lhs)
-    p = picker(lhs == "gd" and 1 or 3)
+    p = picker(lhs == "gd" and 2 or 4)
     assert(p.opts.title:find(lhs == "gd" and "定义候选" or "非语义引用"))
-    assert(#p:items() == (lhs == "gd" and 1 or 3))
+    assert(#p:items() == (lhs == "gd" and 2 or 4))
     for _, item in ipairs(p:items()) do
-      assert((item.file == project .. "/src/impl.c") == (lhs == "gd"), "gd/gr did not distinguish function definitions")
+      if lhs == "gd" then
+        assert(
+          item.file == project .. "/src/impl.c" or item.file == project .. "/include/app.h",
+          "gd lost declaration candidates"
+        )
+      end
       assert(item.file ~= project .. "/outside.c", "text search escaped filelist")
       assert(item.line and item.line:find("shared"), "text candidate lacks displayed context")
     end
@@ -136,9 +141,9 @@ local function test()
   end
   for _, lhs in ipairs({ "gd", "gr" }) do
     key(lhs)
-    p = picker(lhs == "gd" and 1 or 3)
+    p = picker(lhs == "gd" and 2 or 4)
     assert(p.opts.title:find(lhs == "gd" and "定义候选" or "非语义引用"))
-    assert(#p:items() == (lhs == "gd" and 1 or 3))
+    assert(#p:items() == (lhs == "gd" and 2 or 4))
     assert(navigation_requests == 0, "text-only navigation sent an LSP request")
     p:close()
     edit(project .. "/src/main.c", 3, "shared")
@@ -158,7 +163,9 @@ local function test()
       key(lhs)
       p = picker(1)
       for _, item in ipairs(p:items()) do
-        assert((item.pos[1] < 4) == (lhs == "gd"), word .. ": definition/use filtering failed")
+        if lhs == "gd" and word ~= "Record" then
+          assert(item.pos[1] < 4, word .. ": clear use not filtered")
+        end
       end
       p:close()
       edit(project .. "/src/objects.c", 4, word)

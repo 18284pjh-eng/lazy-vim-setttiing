@@ -171,12 +171,6 @@ local function test()
     assert(nav.select().members[item.file], "search escaped filelist")
     assert(item.file ~= project .. "/excluded.c")
   end
-  assert(
-    vim.tbl_contains(notes, function(message)
-      return message:find("未识别到符号定义") ~= nil
-    end, { predicate = true }),
-    "gd without definitions must explain the text fallback"
-  )
   local function matches(files, kind, language, word)
     local items, failure = {}, nil
     local task = Async.new(function()
@@ -193,130 +187,47 @@ local function test()
   end
   local functions = project .. "/syntax.c"
   write(functions, {
-    "typedef int result_t;",
-    "int target(int x);", -- return type plus semicolon is a prototype
-    "int consume(void) { target(1); return target(2); }",
-    "static inline int target(int x) { return target(x - 1); }", -- recursive call on the same line
-    "result_t",
-    "target(",
-    "  int x)",
-    "{",
-    "  return x;",
-    "}",
-    "const char *",
-    "target(void)",
-    "{",
-    '  return "text";',
-    "}",
-    "/* int target(void) { return 0; } */",
-    'const char *text = "int target(void) { return 0; }";',
-    "#define CALLBACK target",
-    "void target(int (*callback)(int)) { callback(1); }",
+    "int target(int x);",
+    "extern int target;",
+    "struct target;",
+    "int target(int x) { return target(x - 1); }",
+    "void use(void) { target(1); target = 2; target++; }",
+    "// target is mentioned in a comment",
+    'const char *text = "target";',
+    "#define DECLARE(name) int name",
+    "DECLARE(target);",
+    "#define target 42",
+    "void (*target)(int);",
+    "typedef int target;",
   })
   local defs = matches({ functions }, "definition")
+  local rows = {}
+  for _, item in ipairs(defs) do
+    rows[#rows + 1] = item.pos[1]
+  end
+  assert(vim.deep_equal(rows, { 1, 2, 3, 4, 9, 10, 11, 12 }), vim.inspect(defs))
+  local all = matches({ functions })
+  assert(vim.deep_equal(matches({ functions }, "references"), all), "gr must retain all text, including definitions")
+  local uncertain = project .. "/uncertain.c"
+  write(uncertain, { "CUSTOM_TYPE target CUSTOM_ATTRIBUTE", "BROKEN(target" })
+  local candidates = matches({ functions, uncertain }, "definition")
   assert(
-    #defs == 4 and defs[1].pos[1] == 4 and defs[2].pos[1] == 6 and defs[3].pos[1] == 12 and defs[4].pos[1] == 19,
-    vim.inspect(defs)
-  )
-  local refs, all = matches({ functions }, "references"), matches({ functions })
-  assert(#all == #refs + #defs, "references must exclude only function definition names")
-  assert(
-    vim.tbl_contains(refs, function(item)
-      return item.pos[1] == 4 and item.pos[2] > defs[1].pos[2]
+    vim.tbl_contains(candidates, function(item)
+      return item.file == uncertain
     end, { predicate = true }),
-    "recursive call on definition line was lost"
+    "recognized definitions must not hide unknown syntax in other files"
   )
+  local usage = project .. "/usage.c"
+  write(usage, { "void run(void) { target(); }" })
+  assert(#matches({ usage }, "definition") == 0, "gd must not reinsert rejected uses when no candidates remain")
   local cpp = project .. "/syntax.cpp"
-  write(cpp, { "struct Device { int target(); };", "int Device::target() { return target(); }" })
-  defs = matches({ cpp }, "definition", "cpp")
-  assert(#defs == 1 and defs[1].pos[1] == 2 and defs[1].pos[2] == 12, vim.inspect(defs))
-  assert(#matches({ cpp }, "references", "cpp") == 2)
+  write(cpp, { "struct Device { static int target; int target(); };", "int Device::target() { return target(); }" })
+  assert(#matches({ cpp }, "definition", "cpp") == 3)
+  assert(#matches({ cpp }, "references", "cpp") == 4)
   local objects = project .. "/objects.c"
-  write(objects, {
-    "struct Record;", -- forward declaration
-    "struct Record { int value; int slots[4]; int (*hook)(int); };",
-    "typedef struct Record Record_t;",
-    "struct Record record;",
-    "extern int count;",
-    "int count, *cursor = &count;",
-    "int table[4] = {1, 2};",
-    "extern int table[];",
-    "extern int initialized = 1;", -- initializer makes this a definition
-    "int (*handler)(int), *factory(int prototype_arg);",
-    "#define LIMIT 4",
-    "#define APPLY(x) ((x) + LIMIT)",
-    "enum Mode { IDLE, BUSY = IDLE + 1 };",
-    "union Value { int number; };",
-    "void use(int argument, int (*callback)(int nested_arg)) {",
-    "  int local = count; count = local; table[0] = APPLY(LIMIT);",
-    "  record.value = table[0]; record.slots[1] = count;",
-    "  struct Record *p = &record; Record_t copy = *p;",
-    "  for (int index = 0; index < LIMIT; index++) count += index;",
-    "  argument = callback(local); handler(argument); record.hook(1);",
-    "}",
-    "// count table Record LIMIT APPLY local",
-  })
-  for word, rows in pairs({
-    Record = { 2 },
-    Record_t = { 3 },
-    record = { 4 },
-    value = { 2 },
-    slots = { 2 },
-    hook = { 2 },
-    count = { 6 },
-    cursor = { 6 },
-    table = { 7 },
-    initialized = { 9 },
-    handler = { 10 },
-    LIMIT = { 11 },
-    APPLY = { 12 },
-    Mode = { 13 },
-    IDLE = { 13 },
-    BUSY = { 13 },
-    Value = { 14 },
-    argument = { 15 },
-    callback = { 15 },
-    ["local"] = { 16 },
-    index = { 19 },
-  }) do
-    local definitions = matches({ objects }, "definition", "c", word)
-    local references = matches({ objects }, "references", "c", word)
-    local texts = matches({ objects }, nil, "c", word)
-    assert(#definitions == #rows, word .. ": " .. vim.inspect(definitions))
-    for i, row in ipairs(rows) do
-      assert(definitions[i].pos[1] == row, word .. ": wrong definition line")
-    end
-    assert(#references + #definitions == #texts, word .. ": gr lost references or retained definitions")
-  end
-  for _, word in ipairs({ "factory", "prototype_arg", "nested_arg" }) do
-    assert(
-      #matches({ objects }, "references", "c", word) == #matches({ objects }, nil, "c", word),
-      word .. " is not a definition"
-    )
-  end
-  write(cpp, {
-    "class Device;",
-    "class Device { public: static int count; int value; inline static int total = 0; };",
-    "int Device::count = 0;",
-    "using Alias = Device;",
-    "void bind(int arg) { auto [left, right] = pair; int &ref = arg; ref = left + right; }",
-  })
-  for word, row in pairs({
-    Device = 2,
-    count = 3,
-    value = 2,
-    total = 2,
-    Alias = 4,
-    left = 5,
-    right = 5,
-    ref = 5,
-    arg = 5,
-  }) do
-    local definitions = matches({ cpp }, "definition", "cpp", word)
-    assert(#definitions == 1 and definitions[1].pos[1] == row, word .. ": " .. vim.inspect(definitions))
-    assert(#matches({ cpp }, "references", "cpp", word) + 1 == #matches({ cpp }, nil, "cpp", word))
-  end
-  print("gd/gr: structs, members, arrays, variables, macros, typedefs, enums and declaration/use boundaries OK")
+  write(objects, { "int table[4];", "void use(void) { table[0] = 1; }" })
+  assert(#matches({ objects }, "definition", "c", "table") == 1)
+  print("C/C++: gd keeps declarations/unknowns, removes clear uses; gr retains all candidates OK")
   local python = project .. "/python/model.py"
   write(python, {
     "from elsewhere import Kind, value as renamed",
@@ -397,13 +308,17 @@ local function test()
   generate({ "src", "include", "../sdk/include" })
   print("Python: definitions/bindings, reads/updates, mixed parsers and py/pyi generation OK")
   local parse = vim.treesitter.get_string_parser
+  local parses = 0
   vim.treesitter.get_string_parser = function()
+    parses = parses + 1
     error("test: parser unavailable")
   end
   assert(#matches({ functions }, "definition") == #all, "missing parser must preserve text search")
+  parses = 0
   assert(#matches({ functions }, "references") == #all)
+  assert(parses == 0, "C/C++ gr must not parse or classify definitions")
   vim.treesitter.get_string_parser = parse
-  print("gd/gr: multiline, pointer/custom return types, prototypes, recursion, comments, C++ and parser fallback OK")
+  print("navigation: parser failure preserves all candidates OK")
   local batches, actual_system = 0, vim.system
   local many = { files = {} }
   for i = 1, 350 do
