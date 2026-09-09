@@ -143,6 +143,29 @@ local function test()
     p:close()
     edit(project .. "/src/main.c", 3, "shared")
   end
+  write(project .. "/src/objects.c", {
+    "struct Record { int value; };",
+    "int count, table[4];",
+    "#define LIMIT 4",
+    "void use(void) { struct Record item; count = table[0] + LIMIT; item.value = count; }",
+  })
+  local filelist = vim.fn.readfile(project .. "/tree_t.f")
+  filelist[#filelist + 1] = "src/objects.c"
+  write(project .. "/tree_t.f", filelist)
+  for _, word in ipairs({ "Record", "value", "count", "table", "LIMIT" }) do
+    edit(project .. "/src/objects.c", 4, word)
+    for _, lhs in ipairs({ "gd", "gr" }) do
+      key(lhs)
+      p = picker(1)
+      for _, item in ipairs(p:items()) do
+        assert((item.pos[1] < 4) == (lhs == "gd"), word .. ": definition/use filtering failed")
+      end
+      p:close()
+      edit(project .. "/src/objects.c", 4, word)
+    end
+  end
+  io.stdout:write("SYMBOLS_OK: real gd/gr for structs, members, variables, arrays and macros\n")
+  edit(project .. "/src/main.c", 3, "shared")
   client.request = request
   key("<Space>uJ")
   assert(not toggle:get(), "toggle key did not restore LSP mode")

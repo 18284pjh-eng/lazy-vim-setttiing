@@ -173,14 +173,14 @@ local function test()
   end
   assert(
     vim.tbl_contains(notes, function(message)
-      return message:find("未识别到函数定义") ~= nil
+      return message:find("未识别到符号定义") ~= nil
     end, { predicate = true }),
     "gd without definitions must explain the text fallback"
   )
-  local function matches(files, kind, language)
+  local function matches(files, kind, language, word)
     local items, failure = {}, nil
     local task = Async.new(function()
-      nav.finder({ files = files }, "target", kind, language)()(function(item)
+      nav.finder({ files = files }, word or "target", kind, language)()(function(item)
         items[#items + 1] = item
       end)
     end)
@@ -231,6 +231,92 @@ local function test()
   defs = matches({ cpp }, "definition", "cpp")
   assert(#defs == 1 and defs[1].pos[1] == 2 and defs[1].pos[2] == 12, vim.inspect(defs))
   assert(#matches({ cpp }, "references", "cpp") == 2)
+  local objects = project .. "/objects.c"
+  write(objects, {
+    "struct Record;", -- forward declaration
+    "struct Record { int value; int slots[4]; int (*hook)(int); };",
+    "typedef struct Record Record_t;",
+    "struct Record record;",
+    "extern int count;",
+    "int count, *cursor = &count;",
+    "int table[4] = {1, 2};",
+    "extern int table[];",
+    "extern int initialized = 1;", -- initializer makes this a definition
+    "int (*handler)(int), *factory(int prototype_arg);",
+    "#define LIMIT 4",
+    "#define APPLY(x) ((x) + LIMIT)",
+    "enum Mode { IDLE, BUSY = IDLE + 1 };",
+    "union Value { int number; };",
+    "void use(int argument, int (*callback)(int nested_arg)) {",
+    "  int local = count; count = local; table[0] = APPLY(LIMIT);",
+    "  record.value = table[0]; record.slots[1] = count;",
+    "  struct Record *p = &record; Record_t copy = *p;",
+    "  for (int index = 0; index < LIMIT; index++) count += index;",
+    "  argument = callback(local); handler(argument); record.hook(1);",
+    "}",
+    "// count table Record LIMIT APPLY local",
+  })
+  for word, rows in pairs({
+    Record = { 2 },
+    Record_t = { 3 },
+    record = { 4 },
+    value = { 2 },
+    slots = { 2 },
+    hook = { 2 },
+    count = { 6 },
+    cursor = { 6 },
+    table = { 7 },
+    initialized = { 9 },
+    handler = { 10 },
+    LIMIT = { 11 },
+    APPLY = { 12 },
+    Mode = { 13 },
+    IDLE = { 13 },
+    BUSY = { 13 },
+    Value = { 14 },
+    argument = { 15 },
+    callback = { 15 },
+    ["local"] = { 16 },
+    index = { 19 },
+  }) do
+    local definitions = matches({ objects }, "definition", "c", word)
+    local references = matches({ objects }, "references", "c", word)
+    local texts = matches({ objects }, nil, "c", word)
+    assert(#definitions == #rows, word .. ": " .. vim.inspect(definitions))
+    for i, row in ipairs(rows) do
+      assert(definitions[i].pos[1] == row, word .. ": wrong definition line")
+    end
+    assert(#references + #definitions == #texts, word .. ": gr lost references or retained definitions")
+  end
+  for _, word in ipairs({ "factory", "prototype_arg", "nested_arg" }) do
+    assert(
+      #matches({ objects }, "references", "c", word) == #matches({ objects }, nil, "c", word),
+      word .. " is not a definition"
+    )
+  end
+  write(cpp, {
+    "class Device;",
+    "class Device { public: static int count; int value; inline static int total = 0; };",
+    "int Device::count = 0;",
+    "using Alias = Device;",
+    "void bind(int arg) { auto [left, right] = pair; int &ref = arg; ref = left + right; }",
+  })
+  for word, row in pairs({
+    Device = 2,
+    count = 3,
+    value = 2,
+    total = 2,
+    Alias = 4,
+    left = 5,
+    right = 5,
+    ref = 5,
+    arg = 5,
+  }) do
+    local definitions = matches({ cpp }, "definition", "cpp", word)
+    assert(#definitions == 1 and definitions[1].pos[1] == row, word .. ": " .. vim.inspect(definitions))
+    assert(#matches({ cpp }, "references", "cpp", word) + 1 == #matches({ cpp }, nil, "cpp", word))
+  end
+  print("gd/gr: structs, members, arrays, variables, macros, typedefs, enums and declaration/use boundaries OK")
   local parse = vim.treesitter.get_string_parser
   vim.treesitter.get_string_parser = function()
     error("test: parser unavailable")

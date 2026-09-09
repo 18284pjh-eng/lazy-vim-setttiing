@@ -94,8 +94,24 @@ function M.headers(list, line, source)
   return items
 end
 
--- Reuse the bundled syntax parser: return types/prototypes alone do not prove a
--- definition, and semicolons may be inside a one-line function body.
+-- Follow only the declared name, never initializer expressions or parameters.
+local function declared_name(node)
+  local callable = false
+  while node and not vim.tbl_contains({ "identifier", "field_identifier", "type_identifier" }, node:type()) do
+    local kind = node:type()
+    if kind == "structured_binding_declarator" then
+      return nil, false -- C++ binding names are captured individually.
+    elseif kind == "function_declarator" then
+      callable = true
+    elseif kind == "pointer_declarator" or kind == "array_declarator" or kind == "reference_declarator" then
+      callable = false
+    end
+    node = node:field("declarator")[1] or node:field("name")[1] or node:named_child(0)
+  end
+  return node, callable
+end
+
+-- Reuse the bundled syntax parser; semicolons also terminate object definitions.
 -- ponytail: syntax only; macro expansion and symbol identity still need LSP.
 local function definitions(file, language)
   local ft = vim.filetype.match({ filename = file })
@@ -103,15 +119,56 @@ local function definitions(file, language)
   local source = table.concat(vim.fn.readfile(file), "\n")
   local parser = vim.treesitter.get_string_parser(source, language)
   local tree = assert(parser:parse()[1])
-  local query = vim.treesitter.query.parse(language, "(function_definition declarator: (_) @name)")
+  local query = vim.treesitter.query.parse(language, [[
+    (function_definition declarator: (_) @definition)
+    (struct_specifier name: (_) @definition body: (_))
+    (union_specifier name: (_) @definition body: (_))
+    (enum_specifier name: (_) @definition body: (_))
+    (enumerator name: (_) @definition)
+    (type_definition declarator: (_) @definition)
+    (preproc_def name: (_) @definition)
+    (preproc_function_def name: (_) @definition)
+    (declaration declarator: (_) @object)
+    (field_declaration declarator: (_) @object)
+    (parameter_declaration declarator: (_) @parameter)
+  ]] .. (language == "cpp" and [[
+    (class_specifier name: (_) @definition body: (_))
+    (alias_declaration name: (_) @definition)
+    (structured_binding_declarator (identifier) @definition)
+  ]] or ""))
   local positions = {}
-  for _, node in query:iter_captures(tree:root(), source) do
-    -- Follow the declared name through pointer/parenthesized/qualified wrappers,
-    -- never the parameter list or body (which may contain the same identifier).
-    while node and node:type() ~= "identifier" and node:type() ~= "field_identifier" do
-      node = node:field("declarator")[1] or node:field("name")[1] or node:named_child(0)
+  for id, declarator in query:iter_captures(tree:root(), source) do
+    local node, callable = declared_name(declarator)
+    local capture, owner = query.captures[id], declarator:parent()
+    local accept = capture == "definition"
+    if capture == "object" then
+      local storage = {}
+      for child in owner:iter_children() do
+        if child:type() == "storage_class_specifier" then
+          storage[vim.treesitter.get_node_text(child, source)] = true
+        end
+      end
+      -- int (*fp)(void) defines an object; int *fn(void) is only a prototype.
+      accept = not callable
+        and not (storage.extern and declarator:type() ~= "init_declarator")
+        and not (owner:type() == "field_declaration" and storage.static and not storage.inline)
+    elseif capture == "parameter" then
+      -- Only parameters of function bodies define local variables; prototype
+      -- parameter names and nested callback signatures do not.
+      owner = owner:parent()
+      while owner do
+        local kind = owner:type()
+        if kind == "function_definition" then
+          accept = true
+          break
+        end
+        if kind == "parameter_declaration" or kind == "declaration" or kind == "field_declaration" then
+          break
+        end
+        owner = owner:parent()
+      end
     end
-    if node then
+    if node and accept then
       local row, col = node:range()
       positions[(row + 1) .. ":" .. col] = true
     end
@@ -202,9 +259,7 @@ function M.finder(list, word, kind, language)
       end
       if kind == "definition" and not found then
         async:schedule(function()
-          notice(
-            "未识别到函数定义，显示全部文本匹配；宏、变量和复杂语法可用 :FilelistGrep 检索"
-          )
+          notice("未识别到符号定义，显示全部文本匹配；可用 :FilelistGrep 查看全部同名位置")
         end)
         for _, item in ipairs(other) do
           cb(item)
@@ -234,7 +289,7 @@ local function grep(list, word, kind)
   Snacks.picker({
     title = (
       kind == "definition" and "定义候选（非语义）: "
-      or kind == "references" and "引用文本（排除函数定义，非语义引用）: "
+      or kind == "references" and "引用文本（排除定义，非语义引用）: "
       or "文本匹配（非语义引用）: "
     ) .. word,
     finder = M.finder(list, word, kind, vim.bo.filetype),
