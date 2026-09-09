@@ -81,7 +81,7 @@ bash ./installer/install.sh --keep-data     # 保留目标机已有 ~/.local/sha
 - **不在内网自动下载**：lazy.nvim 缺失时直接报错；插件、Mason、Treesitter 的自动安装和
   更新检查均关闭。构建机会在复制 payload 前检查所有锁定插件的提交，以及本配置要求的运行时。
 
-## C/C++ 与 Python 文件清单导航
+## C/C++、Python 与 Rust 文件清单导航
 
 在项目根生成本机专用的 `tree_t.f`，指定要导航的源码和 SDK 目录：
 
@@ -91,14 +91,14 @@ bash ./installer/install.sh --keep-data     # 保留目标机已有 ~/.local/sha
 ```
 
 目录相对于 `--root`，也可以使用绝对路径；必须显式指定扫描目录。默认后缀为
-`c,h,cc,cpp,cxx,hh,hpp,py,pyi`，可用 `--ext c,h` 或 `--ext py,pyi` 调整。自定义安装前缀时替换上述路径；
+`c,h,cc,cpp,cxx,hh,hpp,py,pyi,rs`，可用 `--ext c,h` 或 `--ext py,pyi` 调整。自定义安装前缀时替换上述路径；
 在 Neovim 内可执行 `:!nvim-filelist --root /path/to/project -- src include`。
 
-- `gd`：字面量 include 优先在清单内找头文件；重名时显示候选路径和预览。函数、结构体等
+- `gd`：C/C++ 字面量 include 优先在清单内找头文件；重名时显示候选路径和预览。函数、结构体等
   符号先查询 LSP，失败或等待 2 秒后显示清单内的疑似定义候选，多个结果由用户选择。
-- `gr`：先查询 LSP 语义引用；无结果时 C/C++ 显示清单内全部同名文本，不再排除定义位置。
+- `gr`：先查询 LSP 语义引用；无结果时 C/C++、Rust 显示清单内全部同名文本，不再排除定义位置。
 - `<Space>uJ`：切换 **Filelist 直接文本匹配**，在 LazyVim 的 `<Space>u` 菜单显示开关状态。
-  默认关闭；开启后 C/C++、Python 的 `gd/gr` 直接搜索清单内文本，不发起 LSP 定义/引用请求，也不等待超时。
+  默认关闭；开启后 C/C++、Python、Rust 的 `gd/gr` 直接搜索清单内文本，不发起 LSP 定义/引用请求，也不等待超时。
   include 仍优先按清单定位头文件；清单缺失或为空时提示，不转回 LSP。再次按下恢复 LSP 优先。
 - `:FilelistGrep` / `:FilelistGrep shared`：直接在清单内按完整词搜索光标下标识符或指定词。
 - `:FilelistUse /path/to/tree_t.f`：当前标签页选用清单，适用于单独打开共享 SDK；路径按原文输入，
@@ -122,6 +122,12 @@ C/C++ 清单模式只在 `gd` 中做宽松筛选：剔除语法明确的注释�
 函数原型、`extern`、前置声明、宏和不完整语法都可作为疑似候选保留；已有定义不会压掉其他疑似结果。
 顶层调用可能是生成声明的宏，也保留；解析失败保留该文件全部匹配。`gr` 不做定义判断，显示全部同名文本，
 允许与 `gd` 重叠。候选仍由用户确认，不等于语义定义或真实引用；`:FilelistGrep` 始终显示全部文本。
+
+Rust 项目可运行 `nvim-filelist --root "$PWD" --ext rs -- src tests`（普通终端使用上面的完整工具路径）。
+Rust 的剔除强度与 C/C++ 一致：`gd` 保留函数、结构体/枚举/trait、impl、类型别名、`let/const/static`、
+参数、宏和不完整语法中的疑似定义，只排除明确的注释、字符串、调用、赋值及返回语句中的使用位置。
+`gr` 显示全部同名文本；默认扫描包含 `.rs`，包内附带 Rust 解析器，无需运行 Cargo。
+清单导航无需 rust-analyzer；本包未预装它，若用户自行配置了 Rust LSP，开关关闭时仍优先使用它。
 
 Python 项目可运行 `nvim-filelist --root "$PWD" --ext py,pyi -- src tests`（普通终端使用上面的完整工具路径）。
 `gd` 支持函数/异步函数、类、参数、赋值/解包目标、类属性、循环变量和显式导入别名。

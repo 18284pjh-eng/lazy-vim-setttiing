@@ -79,7 +79,7 @@ for package in "${MASON_PACKAGES[@]}"; do
     [ -d "$HOME/.local/share/nvim/mason/packages/$package" ] \
         || { echo "缺少 Mason 包: $package" >&2; exit 1; }
 done
-for parser in cpp git_config ninja rst systemverilog; do
+for parser in cpp git_config ninja rst rust systemverilog; do
     [ -f "$HOME/.local/share/nvim/site/parser/$parser.so" ] \
         || { echo "缺少 Treesitter parser: $parser" >&2; exit 1; }
 done
@@ -145,7 +145,7 @@ timeout 90 "$BIN" --headless "$WORK/workspace/test.c" '+lua vim.defer_fn(functio
     vim.cmd("qa!")
 end, 12000)' 2>&1 | tail -3
 
-log "已安装的生成器、清单导航与真实 C/Python/Verilog 集成"
+log "已安装的生成器、清单导航与真实 C/Python/Rust/Verilog 集成"
 FILELIST_CONFIG="$HOME/.config/nvim" \
 FILELIST_GENERATOR="$PREFIX_DIR/tools/bin/nvim-filelist" \
 FILELIST_DATA="$HOME/.local/share/nvim/lazy/snacks.nvim" \

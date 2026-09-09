@@ -1,7 +1,7 @@
 local M = {}
 local uv = vim.uv
 local active = {} -- one pending semantic request per tab
-local supported = { c = true, cpp = true, python = true }
+local supported = { c = true, cpp = true, python = true, rust = true }
 
 local function notice(message, level)
   vim.notify(message, level or vim.log.levels.WARN, { title = "Filelist" })
@@ -147,7 +147,7 @@ local function python_definitions(tree, source)
   return positions
 end
 
--- C/C++ only rejects clear uses. Unknown syntax stays visible for the user.
+-- C/C++/Rust only rejects clear uses. Unknown syntax stays visible for the user.
 -- ponytail: syntax cannot resolve macros or symbol identity; keep ambiguity.
 local function definition_filter(file, language)
   local ft = vim.filetype.match({ filename = file })
@@ -168,22 +168,33 @@ local function definition_filter(file, language)
     local use, text = false, false
     while node do
       local kind = node:type()
-      if node:has_error() or kind:find("^preproc_") then
+      if node:has_error() or kind:find("^preproc_") or kind == "macro_invocation" or kind == "macro_definition" then
         return true
       end
-      if
-        kind == "comment"
+      text = text
+        or kind == "comment"
+        or kind == "line_comment"
+        or kind == "block_comment"
         or kind == "string_literal"
+        or kind == "raw_string_literal"
         or kind == "char_literal"
+      if
+        text
         or kind == "call_expression"
         or kind == "assignment_expression"
+        or kind == "compound_assignment_expr"
         or kind == "update_expression"
         or kind == "return_statement"
+        or kind == "return_expression"
       then
         use = true
       end
-      text = text or kind == "comment" or kind == "string_literal" or kind == "char_literal"
-      if kind == "declaration" or kind == "function_definition" or kind == "field_declaration" then
+      if
+        kind == "declaration"
+        or kind == "function_definition"
+        or kind == "field_declaration"
+        or language == "rust" and (kind == "let_declaration" or kind:find("_item$"))
+      then
         return not use
       end
       node = node:parent()
@@ -454,7 +465,7 @@ function M.navigate(kind)
     end
     return Snacks.picker.lsp_references()
   end
-  if kind == "definition" and vim.bo.filetype ~= "python" then
+  if kind == "definition" and (vim.bo.filetype == "c" or vim.bo.filetype == "cpp") then
     local items = M.headers(list, vim.api.nvim_get_current_line(), vim.api.nvim_buf_get_name(0))
     if items and #items > 0 then
       show("清单头文件（选择完整路径）", items, true)
@@ -482,7 +493,7 @@ function M.setup()
   for _, mapping in ipairs({ { "gd", "definition" }, { "gr", "references" } }) do
     Snacks.keymap.set("n", mapping[1], function()
       M.navigate(mapping[2])
-    end, { ft = { "c", "cpp", "python" }, desc = "Filelist / LSP " .. mapping[2], nowait = true })
+    end, { ft = { "c", "cpp", "python", "rust" }, desc = "Filelist / LSP " .. mapping[2], nowait = true })
   end
   vim.api.nvim_create_user_command("FilelistUse", function(opts)
     if opts.args == "" then

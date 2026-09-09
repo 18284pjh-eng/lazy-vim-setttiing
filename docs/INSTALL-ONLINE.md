@@ -46,7 +46,7 @@ bash ./installer/install.sh --prefix DIR    # 自定义安装前缀
 
 重复运行 install.sh 即为升级/修复（受管理的目录会增量同步并清理脏文件）。
 
-## C/C++ 与 Python 本地文件清单
+## C/C++、Python 与 Rust 本地文件清单
 
 在项目根执行（目录名替换为实际源码与 SDK 路径）：
 
@@ -56,8 +56,9 @@ bash ./installer/install.sh --prefix DIR    # 自定义安装前缀
 
 使用 `--prefix DIR` 安装时，命令为 `DIR/tools/bin/nvim-filelist`。Neovim 内可运行
 `:!nvim-filelist --root /path/to/project -- src include`。需要系统自带 GNU find/coreutils；
-默认扫描 C/C++ 及 `.py/.pyi` 后缀，可用 `--ext c,h,cpp,hpp` 或 `--ext py,pyi` 调整。
+默认扫描 C/C++ 及 `.py/.pyi/.rs` 后缀，可用 `--ext c,h,cpp,hpp`、`--ext py,pyi` 或 `--ext rs` 调整。
 Python 项目示例：`~/.local/opt/lazyvim-offline/tools/bin/nvim-filelist --root "$PWD" --ext py,pyi -- src tests`。
+Rust 项目示例：`~/.local/opt/lazyvim-offline/tools/bin/nvim-filelist --root "$PWD" --ext rs -- src tests`。
 普通终端使用完整命令路径即可。
 
 清单 `tree_t.f` 只在本机生成，通过 Git 本地排除规则保持未跟踪（支持 worktree），不改项目
@@ -68,11 +69,14 @@ Python 项目示例：`~/.local/opt/lazyvim-offline/tools/bin/nvim-filelist --ro
 `gd` 只剔除明确的注释、字符串、调用、赋值、更新及返回语句中的使用位置；函数原型、`extern`、
 前置声明、顶层宏调用和不完整语法都保留为疑似候选，多个结果由用户选择。`gr` 显示全部同名文本，
 不再判断或排除定义；两者允许重叠。解析失败保留匹配，明确剔除的使用位置不会因无结果再加回来。
+Rust 采用相同的宽松规则：`gd` 保留函数、类型、`let/const/static`、参数、宏及不完整语法中的疑似定义，
+只剔除明确使用位置；`gr` 保留全部文本。包内提供 Rust 解析器，清单导航无需 Cargo 或 rust-analyzer。
+本包未预装 rust-analyzer；若自行配置 Rust LSP，关闭直接文本开关后仍优先使用它。
 Python 支持函数、类、参数、赋值/解包目标、属性绑定、循环变量和显式导入别名；普通赋值可能是重新绑定，
 仍列为定义候选，`+=` 和下标写入保留为引用。Python 保持 `gd` 定义优先、`gr` 排除绑定的行为。
 筛选复用包内 Tree-sitter，不启动 LSP、不执行 Python 代码。
 声明、注释等仍可能出现在 `gr`，不等于真实语义引用。`:FilelistGrep` 始终搜索全部同名文本，`Ctrl-o` 返回。
-按 `<Space>uJ` 切换“Filelist 直接文本匹配”（在 `<Space>u` 菜单显示状态）：开启后 C/C++、Python 的
+按 `<Space>uJ` 切换“Filelist 直接文本匹配”（在 `<Space>u` 菜单显示状态）：开启后 C/C++、Python、Rust 的
 `gd/gr` 不请求 LSP，直接使用清单，include 仍按清单定位；清单缺失/为空时提示。再次按下恢复
 LSP 优先。开关作用于当前会话，默认关闭；在 `lua/config/options.lua` 设置
 `vim.g.filelist_text_only = true` 可默认开启。其他 LSP 功能继续工作。

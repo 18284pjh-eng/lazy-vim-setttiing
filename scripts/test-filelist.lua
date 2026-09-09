@@ -228,6 +228,64 @@ local function test()
   write(objects, { "int table[4];", "void use(void) { table[0] = 1; }" })
   assert(#matches({ objects }, "definition", "c", "table") == 1)
   print("C/C++: gd keeps declarations/unknowns, removes clear uses; gr retains all candidates OK")
+  local rust = project .. "/rust/model.rs"
+  write(rust, {
+    "pub async unsafe fn target(target: i32) -> i32 { target(); return target; }",
+    "struct target { target: i32 }",
+    "enum target { target }",
+    "trait target { fn target(); }",
+    "impl target for Other { fn target() {} }",
+    "type target = i32;",
+    "const target: i32 = target();",
+    "static mut target: [i32; 4] = [0; 4];",
+    "macro_rules! target { ($name:ident) => { fn $name() {} }; }",
+    "use crate::other as target;",
+    "fn uses() {",
+    "    let mut target = target();",
+    "    let (target, other) = pair;",
+    "    for target in values {}",
+    "    if let Some(target) = option {}",
+    "    match option { Some(target) => {}, _ => {} }",
+    "    target(); target = 2; target += 1; return target;",
+    "}",
+    "// target",
+    "/* target */",
+    'const TEXT: &str = "target";',
+    'const RAW: &str = r#"target"#;',
+    "build!(target);",
+    "fn generated() { make!(target); }",
+    "fn nested() { invoke(|| { let target = 1; }); }",
+  })
+  rows = {}
+  for _, item in ipairs(matches({ rust }, "definition", "rust")) do
+    rows[#rows + 1] = item.pos[1]
+  end
+  assert(
+    vim.deep_equal(rows, { 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 23, 24, 25 }),
+    vim.inspect(rows)
+  )
+  local rust_all = matches({ rust }, nil, "rust")
+  assert(vim.deep_equal(matches({ rust }, "references", "rust"), rust_all))
+  local rust_unknown = project .. "/rust/unknown.rs"
+  write(rust_unknown, { "custom target syntax", "build!(target" })
+  assert(#matches({ rust, rust_unknown }, "definition", "rust") == #rows + 2, "Rust unknowns lost beside definitions")
+  local rust_usage = project .. "/rust/usage.rs"
+  write(rust_usage, { "fn run() { target(); target = 1; target += 1; return target; }" })
+  assert(#matches({ rust_usage }, "definition", "rust") == 0, "Rust gd reinserted rejected uses")
+  assert(#matches({ rust, functions }, "definition", "rust") == #rows + #defs, "mixed Rust/C parsers failed")
+  write(project .. "/rust/foreign.py", { "target = 1" })
+  generate({ "rust" })
+  assert(vim.deep_equal(vim.fn.readfile(project .. "/tree_t.f"), {
+    "rust/foreign.py",
+    "rust/model.rs",
+    "rust/unknown.rs",
+    "rust/usage.rs",
+  }))
+  run({ "bash", generator, "--root", project, "--ext", "rs", "--", "rust" })
+  assert(
+    vim.deep_equal(vim.fn.readfile(project .. "/tree_t.f"), { "rust/model.rs", "rust/unknown.rs", "rust/usage.rs" })
+  )
+  print("Rust: permissive gd, unfiltered gr, types/bindings/macros, mixed parsers and rs generation OK")
   local python = project .. "/python/model.py"
   write(python, {
     "from elsewhere import Kind, value as renamed",
@@ -314,9 +372,11 @@ local function test()
     error("test: parser unavailable")
   end
   assert(#matches({ functions }, "definition") == #all, "missing parser must preserve text search")
+  assert(#matches({ rust }, "definition", "rust") == #rust_all, "Rust parser failure lost candidates")
   parses = 0
   assert(#matches({ functions }, "references") == #all)
-  assert(parses == 0, "C/C++ gr must not parse or classify definitions")
+  assert(#matches({ rust }, "references", "rust") == #rust_all)
+  assert(parses == 0, "C/C++/Rust gr must not parse or classify definitions")
   vim.treesitter.get_string_parser = parse
   print("navigation: parser failure preserves all candidates OK")
   local batches, actual_system = 0, vim.system
@@ -429,6 +489,17 @@ local function test()
     nav.navigate(kind)
     assert(picker.finder and picker.title:find(kind == "definition" and "定义候选" or "非语义引用"))
   end
+  edit(rust)
+  vim.bo.filetype = "rust"
+  local headers = nav.headers
+  nav.headers = function()
+    error("Rust navigation attempted C include lookup")
+  end
+  for _, kind in ipairs({ "definition", "references" }) do
+    nav.navigate(kind)
+    assert(picker.finder and picker.title:find(kind == "definition" and "定义候选" or "全部文本"))
+  end
+  nav.headers = headers
   edit(project .. "/src/main.c")
   nav.navigate("definition")
   assert(picker.title:find("清单头文件"), "toggle broke include lookup")

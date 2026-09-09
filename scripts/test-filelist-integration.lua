@@ -213,6 +213,76 @@ local function test()
   assert(p.opts.source == "lsp_references", vim.inspect(p.opts.source))
   p:close()
 
+  write(project .. "/main.rs", { "fn main() { shared(); }", "// shared" })
+  write(project .. "/helper.rs", { "pub fn shared() {}" })
+  write(project .. "/generated.rs", { "declare!(shared);" })
+  write(project .. "/outside.rs", { "fn shared() {}" })
+  local rust_files = { "main.rs", "helper.rs", "generated.rs" }
+  write(project .. "/tree_t.f", rust_files)
+  local get_clients, rust_queries = vim.lsp.get_clients, 0
+  vim.lsp.get_clients = function(opts)
+    if opts and (opts.method == "textDocument/definition" or opts.method == "textDocument/references") then
+      rust_queries = rust_queries + 1
+    end
+    return get_clients(opts)
+  end
+  for _, direct in ipairs({ false, true }) do
+    edit(project .. "/main.rs", 1, "shared")
+    assert(vim.bo.filetype == "rust" and #get_clients({ bufnr = 0 }) == 0)
+    if direct then
+      key("<Space>uJ")
+    end
+    assert(toggle:get() == direct)
+    rust_queries = 0
+    for _, lhs in ipairs({ "gd", "gr" }) do
+      key(lhs)
+      p = picker(lhs == "gd" and 2 or 4)
+      assert(#p:items() == (lhs == "gd" and 2 or 4))
+      assert(p.opts.title:find(lhs == "gd" and "定义候选" or "全部文本"))
+      for _, item in ipairs(p:items()) do
+        assert(item.file ~= project .. "/outside.rs", "Rust search escaped filelist")
+        if lhs == "gd" then
+          assert(
+            item.file == project .. "/helper.rs" or item.file == project .. "/generated.rs",
+            "Rust gd lost macro candidate"
+          )
+        end
+      end
+      local selected = assert(p:current())
+      Snacks.picker.actions.jump(p, selected, {})
+      assert(vim.wait(1000, function()
+        return p.closed
+      end))
+      key("<C-o>")
+      assert(vim.api.nvim_buf_get_name(0) == project .. "/main.rs", "Rust jump lost origin")
+      edit(project .. "/main.rs", 1, "shared")
+    end
+    assert(rust_queries == (direct and 0 or 2), "Rust toggle did not gate LSP queries")
+  end
+  for _, empty in ipairs({ true, false }) do
+    if empty then
+      write(project .. "/tree_t.f", {})
+    else
+      vim.fn.delete(project .. "/tree_t.f")
+    end
+    key("gd")
+    key("gr")
+    vim.wait(100, function()
+      return false
+    end)
+    assert(#Snacks.picker.get() == 0 and rust_queries == 0, "Rust empty/missing list escaped text-only mode")
+  end
+  write(project .. "/tree_t.f", rust_files)
+  key("<Space>uJ")
+  key("gd")
+  p = picker(2)
+  assert(not toggle:get() and rust_queries == 1, "Rust toggle did not restore LSP-first path")
+  p:close()
+  vim.lsp.get_clients = get_clients
+  io.stdout:write(
+    "RUST_OK: real gd/gr without LSP, permissive candidates, scope, Ctrl-o, toggle and empty/missing lists\n"
+  )
+
   write(project .. "/helper.py", { "def shared():", "    return 42" })
   write(project .. "/main.py", { "from helper import shared", "print(shared())", "print(shared())" })
   write(project .. "/pyproject.toml", { "[tool.pyright]", 'include = ["."]' })

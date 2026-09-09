@@ -23,7 +23,7 @@ MASON_CHECK_ARGS=(
 )
 PARSERS=(
     bash c cpp diff git_config html javascript jsdoc json lua luadoc luap markdown
-    markdown_inline ninja printf python query regex rst systemverilog toml tsx typescript
+    markdown_inline ninja printf python query regex rst rust systemverilog toml tsx typescript
     vim vimdoc xml yaml
 )
 
