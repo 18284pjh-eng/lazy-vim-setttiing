@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-用法: nvim-filelist [--root DIR] [--ext c,h,cc,cpp,cxx,hh,hpp] -- DIR...
+用法: nvim-filelist [--root DIR] [--ext c,h,cc,cpp,cxx,hh,hpp,py,pyi] -- DIR...
 
 在项目根生成 tree_t.f；DIR 相对于项目根，也可以是绝对路径。
 递归扫描指定目录，保留相对路径，排序去重；成功后整体替换旧清单。
@@ -14,7 +14,7 @@ EOF
 }
 die() { printf '错误: %s\n' "$*" >&2; exit 1; }
 project_root="$PWD"
-extensions='c,h,cc,cpp,cxx,hh,hpp'
+extensions='c,h,cc,cpp,cxx,hh,hpp,py,pyi'
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --root) [ "$#" -ge 2 ] || die '--root 缺少目录'; project_root="$2"; shift 2 ;;

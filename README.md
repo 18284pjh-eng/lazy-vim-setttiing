@@ -81,7 +81,7 @@ bash ./installer/install.sh --keep-data     # 保留目标机已有 ~/.local/sha
 - **不在内网自动下载**：lazy.nvim 缺失时直接报错；插件、Mason、Treesitter 的自动安装和
   更新检查均关闭。构建机会在复制 payload 前检查所有锁定插件的提交，以及本配置要求的运行时。
 
-## C/C++ 文件清单导航
+## C/C++ 与 Python 文件清单导航
 
 在项目根生成本机专用的 `tree_t.f`，指定要导航的源码和 SDK 目录：
 
@@ -91,19 +91,19 @@ bash ./installer/install.sh --keep-data     # 保留目标机已有 ~/.local/sha
 ```
 
 目录相对于 `--root`，也可以使用绝对路径；必须显式指定扫描目录。默认后缀为
-`c,h,cc,cpp,cxx,hh,hpp`，可用 `--ext c,h` 调整。自定义安装前缀时替换上述路径；
+`c,h,cc,cpp,cxx,hh,hpp,py,pyi`，可用 `--ext c,h` 或 `--ext py,pyi` 调整。自定义安装前缀时替换上述路径；
 在 Neovim 内可执行 `:!nvim-filelist --root /path/to/project -- src include`。
 
 - `gd`：字面量 include 优先在清单内找头文件；重名时显示候选路径和预览。函数、结构体等
   符号先查询 LSP，失败或等待 2 秒后优先显示清单内的符号定义候选；未识别到定义时提示并显示全部同名文本。
 - `gr`：先查询 LSP 语义引用；无结果时显示清单内同名文本，排除已识别的定义位置。
 - `<Space>uJ`：切换 **Filelist 直接文本匹配**，在 LazyVim 的 `<Space>u` 菜单显示开关状态。
-  默认关闭；开启后 C/C++ 的 `gd/gr` 直接搜索清单内文本，不发起 LSP 定义/引用请求，也不等待超时。
+  默认关闭；开启后 C/C++、Python 的 `gd/gr` 直接搜索清单内文本，不发起 LSP 定义/引用请求，也不等待超时。
   include 仍优先按清单定位头文件；清单缺失或为空时提示，不转回 LSP。再次按下恢复 LSP 优先。
 - `:FilelistGrep` / `:FilelistGrep shared`：直接在清单内按完整词搜索光标下标识符或指定词。
 - `:FilelistUse /path/to/tree_t.f`：当前标签页选用清单，适用于单独打开共享 SDK；路径按原文输入，
   空格不加引号，`$`、`%` 不展开。无参数执行 `:FilelistUse` 恢复自动选择。
-- `Ctrl-o`：返回跳转前的位置。开关关闭且没有清单时沿用原有 LSP 导航；Python/Verilog 行为不变。
+- `Ctrl-o`：返回跳转前的位置。开关关闭且没有清单时沿用原有 LSP 导航；Verilog 行为不变。
 
 开关在当前 Neovim 会话全局生效，重启默认关闭；若希望默认开启，在
 `lua/config/options.lua` 加入 `vim.g.filelist_text_only = true`。切换会取消本模块正在等待的 LSP
@@ -123,6 +123,12 @@ LSP 结果可位于清单之外；文本候选可能是注释、调用或声明�
 函数原型、结构体前置声明和无初始化的 `extern` 不当作定义。`int x;`、`int a[8];` 是定义候选，
 同一行的初始化引用、递归调用、赋值和成员/数组访问仍保留在 `gr`。
 `gr` 仍可能包含声明、注释和字符串；宏展开、同名符号归属无法靠语法确定，`:FilelistGrep` 始终显示全部文本。
+
+Python 项目可运行 `nvim-filelist --root "$PWD" --ext py,pyi -- src tests`（普通终端使用上面的完整工具路径）。
+`gd` 支持函数/异步函数、类、参数、赋值/解包目标、类属性、循环变量和显式导入别名。
+普通赋值和属性赋值都视为绑定候选，可能包含重新赋值；`+=`、下标写入及右侧读取保留在 `gr`。
+普通 `from module import name` 中的 `name` 保留为引用，`gd` 可找到清单内原始定义；`as alias` 可定位别名绑定。
+模块路径、跨模块别名追踪和动态属性解析仍由 Pyright 处理；清单搜索不执行 Python 代码。
 
 ## C/C++ 语义跳转与搜索
 

@@ -1,6 +1,7 @@
 local M = {}
 local uv = vim.uv
 local active = {} -- one pending semantic request per tab
+local supported = { c = true, cpp = true, python = true }
 
 local function notice(message, level)
   vim.notify(message, level or vim.log.levels.WARN, { title = "Filelist" })
@@ -111,14 +112,72 @@ local function declared_name(node)
   return node, callable
 end
 
+local function python_definitions(tree, source)
+  local query = vim.treesitter.query.parse(
+    "python",
+    [[
+    (function_definition name: (identifier) @binding)
+    (class_definition name: (identifier) @binding)
+    (parameters (_) @binding)
+    (lambda_parameters (_) @binding)
+    (assignment left: (_) @binding)
+    (named_expression name: (identifier) @binding)
+    (for_statement left: (_) @binding)
+    (for_in_clause left: (_) @binding)
+    (as_pattern alias: (_) @binding)
+    (aliased_import alias: (identifier) @binding)
+  ]]
+  )
+  local positions = {}
+  local function bind(node)
+    local kind = node:type()
+    if kind == "identifier" then
+      local row, col = node:range()
+      positions[(row + 1) .. ":" .. col] = true
+    elseif kind == "attribute" then
+      bind(node:field("attribute")[1])
+    elseif kind == "default_parameter" or kind == "typed_default_parameter" then
+      bind(node:field("name")[1])
+    elseif kind == "typed_parameter" then
+      bind(node:named_child(0))
+    elseif
+      vim.tbl_contains({
+        "pattern_list",
+        "tuple_pattern",
+        "list_pattern",
+        "list_splat_pattern",
+        "dictionary_splat_pattern",
+        "as_pattern_target",
+      }, kind)
+    then
+      for child in node:iter_children() do
+        if child:named() then
+          bind(child)
+        end
+      end
+    end
+    -- Subscript writes and annotation/default expressions do not bind names.
+  end
+  for _, node in query:iter_captures(tree:root(), source) do
+    bind(node)
+  end
+  return positions
+end
+
 -- Reuse the bundled syntax parser; semicolons also terminate object definitions.
 -- ponytail: syntax only; macro expansion and symbol identity still need LSP.
 local function definitions(file, language)
   local ft = vim.filetype.match({ filename = file })
-  language = file:match("%.h$") and language or (ft == "c" or ft == "cpp") and ft or language
+  language = file:match("%.h$") and (language == "cpp" and "cpp" or "c") or ft
+  if not supported[language] then
+    return {}
+  end
   local source = table.concat(vim.fn.readfile(file), "\n")
   local parser = vim.treesitter.get_string_parser(source, language)
   local tree = assert(parser:parse()[1])
+  if language == "python" then
+    return python_definitions(tree, source)
+  end
   local query = vim.treesitter.query.parse(language, [[
     (function_definition declarator: (_) @definition)
     (struct_specifier name: (_) @definition body: (_))
@@ -418,9 +477,8 @@ function M.navigate(kind)
   if pending then
     pending()
   end
-  local supported = vim.bo.filetype == "c" or vim.bo.filetype == "cpp"
-  local text_only = supported and vim.g.filelist_text_only == true
-  local list = supported and M.select() or nil
+  local text_only = supported[vim.bo.filetype] and vim.g.filelist_text_only == true
+  local list = supported[vim.bo.filetype] and M.select() or nil
   if text_only and not list then
     return grep(nil)
   end
@@ -431,7 +489,7 @@ function M.navigate(kind)
     end
     return Snacks.picker.lsp_references()
   end
-  if kind == "definition" then
+  if kind == "definition" and vim.bo.filetype ~= "python" then
     local items = M.headers(list, vim.api.nvim_get_current_line(), vim.api.nvim_buf_get_name(0))
     if items and #items > 0 then
       show("清单头文件（选择完整路径）", items, true)
@@ -459,7 +517,7 @@ function M.setup()
   for _, mapping in ipairs({ { "gd", "definition" }, { "gr", "references" } }) do
     Snacks.keymap.set("n", mapping[1], function()
       M.navigate(mapping[2])
-    end, { ft = { "c", "cpp" }, desc = "Filelist / LSP " .. mapping[2], nowait = true })
+    end, { ft = { "c", "cpp", "python" }, desc = "Filelist / LSP " .. mapping[2], nowait = true })
   end
   vim.api.nvim_create_user_command("FilelistUse", function(opts)
     if opts.args == "" then

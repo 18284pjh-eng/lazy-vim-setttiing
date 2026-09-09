@@ -209,17 +209,102 @@ local function test()
   write(project .. "/helper.py", { "def shared():", "    return 42" })
   write(project .. "/main.py", { "from helper import shared", "print(shared())", "print(shared())" })
   write(project .. "/pyproject.toml", { "[tool.pyright]", 'include = ["."]' })
+  write(project .. "/outside.py", { "def shared(): return 0" })
+  write(project .. "/model.py", {
+    "class Device:",
+    "    field = 1",
+    "COUNT = 1",
+    "items = [COUNT]",
+    "print(Device.field, COUNT, items)",
+  })
+  write(project .. "/tree_t.f", { "main.py", "helper.py", "model.py" })
+  vim.lsp.enable("pyright", false)
+  edit(project .. "/main.py", 2, "shared")
+  for _, lhs in ipairs({ "gd", "gr" }) do
+    key(lhs)
+    p = picker(lhs == "gd" and 1 or 3)
+    assert(#p:items() == (lhs == "gd" and 1 or 3))
+    for _, item in ipairs(p:items()) do
+      assert((item.file == project .. "/helper.py") == (lhs == "gd"), "Python definition/reference split failed")
+      assert(item.file ~= project .. "/outside.py", "Python search escaped filelist")
+    end
+    local selected = assert(p:current())
+    Snacks.picker.actions.jump(p, selected, {})
+    assert(vim.wait(1000, function()
+      return p.closed
+    end))
+    key("<C-o>")
+    assert(vim.api.nvim_buf_get_name(0) == project .. "/main.py", "Python jump lost origin")
+    edit(project .. "/main.py", 2, "shared")
+  end
+  for _, word in ipairs({ "Device", "field", "COUNT", "items" }) do
+    edit(project .. "/model.py", 5, word)
+    key("gd")
+    p = picker(1)
+    assert(#p:items() == 1 and p:items()[1].pos[1] < 5, "Python class/variable binding missing: " .. word)
+    p:close()
+  end
+  vim.lsp.enable("pyright")
+  edit(project .. "/main.py", 2, "shared")
+  client = attached("pyright")
+  key("<Space>uJ")
+  assert(toggle:get())
+  request, navigation_requests = client.request, 0
+  client.request = function(self, method, ...)
+    if method == "textDocument/definition" or method == "textDocument/references" then
+      navigation_requests = navigation_requests + 1
+    end
+    return request(self, method, ...)
+  end
+  for _, lhs in ipairs({ "gd", "gr" }) do
+    key(lhs)
+    p = picker(lhs == "gd" and 1 or 3)
+    assert(#p:items() == (lhs == "gd" and 1 or 3))
+    assert(navigation_requests == 0, "Python text-only mode requested LSP navigation")
+    p:close()
+    edit(project .. "/main.py", 2, "shared")
+  end
+  -- Missing/empty Python lists must not fall through to LSP in text-only mode.
+  for _, empty in ipairs({ true, false }) do
+    if empty then
+      write(project .. "/tree_t.f", {})
+    else
+      vim.fn.delete(project .. "/tree_t.f")
+    end
+    key("gd")
+    key("gr")
+    vim.wait(100, function()
+      return false
+    end)
+    assert(#Snacks.picker.get() == 0 and navigation_requests == 0)
+  end
+  client.request = request
+  write(project .. "/tree_t.f", { "main.py", "helper.py", "model.py" })
+  key("<Space>uJ")
+  key("gd")
+  assert(vim.wait(4000, function()
+    return vim.api.nvim_buf_get_name(0) == project .. "/helper.py"
+  end))
+  edit(project .. "/main.py", 2, "shared")
+  key("gr")
+  p = picker(2)
+  assert(p.opts.title == "LSP 语义引用")
+  p:close()
+  io.stdout:write("PYTHON_OK: real gd/gr before Pyright, binding candidates, scope, Ctrl-o, toggle and LSP recovery\n")
+  vim.fn.delete(project .. "/tree_t.f")
   write(project .. "/child.sv", { "module child;", "endmodule" })
   write(project .. "/top.sv", { "module top;", "  child u_child();", "  child u_child2();", "endmodule" })
   write(project .. "/other.sv", { "module other;", "  child u_child();", "endmodule" })
   write(project .. "/verible.filelist", { "child.sv", "top.sv", "other.sv" })
-  -- An unrelated filelist must not take over Python/Verilog navigation.
-  write(project .. "/tree_t.f", { "src/main.c" })
-  key("<Space>uJ") -- Text-only mode only applies to C/C++.
+  -- Python without a list keeps ordinary LSP behavior; Verilog is unchanged.
   for _, case in ipairs({
     { "pyright", "main.py", 2, "shared", "helper.py" },
     { "verible", "top.sv", 2, "child", "child.sv" },
   }) do
+    if case[1] == "verible" then
+      write(project .. "/tree_t.f", { "src/main.c" })
+      key("<Space>uJ")
+    end
     edit(project .. "/" .. case[2], case[3], case[4])
     client = attached(case[1])
     params = vim.lsp.util.make_position_params(0, client.offset_encoding)

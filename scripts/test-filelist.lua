@@ -317,6 +317,85 @@ local function test()
     assert(#matches({ cpp }, "references", "cpp", word) + 1 == #matches({ cpp }, nil, "cpp", word))
   end
   print("gd/gr: structs, members, arrays, variables, macros, typedefs, enums and declaration/use boundaries OK")
+  local python = project .. "/python/model.py"
+  write(python, {
+    "from elsewhere import Kind, value as renamed",
+    "LIMIT = 4",
+    "items: list[int] = []",
+    "@decorator",
+    "async def fetch(arg: Kind, default=LIMIT, *args, **kwargs):",
+    "    local: int = arg",
+    "    first, (second, *tail) = args",
+    "    items[index] = local",
+    "    local += 1",
+    "    if (count := len(items)):",
+    "        return count",
+    "    for key, val in pairs:",
+    "        pass",
+    "    with open(path) as stream:",
+    "        pass",
+    "    try: pass",
+    "    except Error as exc: pass",
+    "class Device:",
+    "    field: int",
+    "    def method(self, typed: Kind=LIMIT):",
+    "        self.field = typed",
+    "        return self.field",
+    "items = [entry for entry in source]",
+    "callback = lambda param: param + LIMIT",
+    "print(fetch, Device, renamed, items, local, first, field)",
+    "# fetch Device LIMIT items",
+    'text = "class Device: def fetch(): LIMIT = items"',
+  })
+  for word, rows in pairs({
+    fetch = { 5 },
+    Device = { 18 },
+    LIMIT = { 2 },
+    items = { 3, 23 },
+    arg = { 5 },
+    default = { 5 },
+    args = { 5 },
+    kwargs = { 5 },
+    ["local"] = { 6 },
+    first = { 7 },
+    second = { 7 },
+    tail = { 7 },
+    count = { 10 },
+    key = { 12 },
+    val = { 12 },
+    stream = { 14 },
+    exc = { 17 },
+    field = { 19, 21 },
+    method = { 20 },
+    self = { 20 },
+    typed = { 20 },
+    entry = { 23 },
+    param = { 24 },
+    renamed = { 1 },
+  }) do
+    local definitions = matches({ python }, "definition", "python", word)
+    assert(#definitions == #rows, word .. ": " .. vim.inspect(definitions))
+    for i, row in ipairs(rows) do
+      assert(definitions[i].file == python and definitions[i].pos[1] == row, word .. ": wrong Python binding")
+    end
+    assert(
+      #matches({ python }, "references", "python", word) + #definitions == #matches({ python }, nil, "python", word)
+    )
+  end
+  for _, word in ipairs({ "Kind", "index", "decorator" }) do
+    assert(#matches({ python }, "references", "python", word) == #matches({ python }, nil, "python", word))
+  end
+  -- Mixed lists select each file's parser, regardless of the source buffer.
+  assert(#matches({ python, objects }, "definition", "c", "fetch") == 1)
+  assert(#matches({ python, objects }, "definition", "python", "table") == 1)
+  write(project .. "/python/api.pyi", { "def stub(arg: int) -> int: ..." })
+  generate({ "python" })
+  assert(vim.deep_equal(vim.fn.readfile(project .. "/tree_t.f"), { "python/api.pyi", "python/model.py" }))
+  assert(#matches({ project .. "/python/api.pyi" }, "definition", "python", "stub") == 1)
+  run({ "bash", generator, "--root", project, "--ext", "py", "--", "python" })
+  assert(vim.deep_equal(vim.fn.readfile(project .. "/tree_t.f"), { "python/model.py" }))
+  generate({ "src", "include", "../sdk/include" })
+  print("Python: definitions/bindings, reads/updates, mixed parsers and py/pyi generation OK")
   local parse = vim.treesitter.get_string_parser
   vim.treesitter.get_string_parser = function()
     error("test: parser unavailable")
@@ -496,7 +575,7 @@ local function test()
     return false
   end)
   assert(picker == nil, "stale LSP response opened picker")
-  vim.bo.filetype = "python"
+  vim.bo.filetype = "verilog"
   nav.navigate("definition")
   assert(picker == "normal definitions")
   nav.navigate("references")
